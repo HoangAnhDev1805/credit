@@ -90,8 +90,9 @@ class ApiClient {
   private requestQueue: Map<string, Promise<any>> = new Map();
 
   constructor() {
+    const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '')
     this.client = axios.create({
-      baseURL: process.env.NEXT_PUBLIC_API_URL,
+      baseURL: `${base}/api`,
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',

@@ -103,7 +103,7 @@ export default function CryptoPaymentPage() {
           }))
           setCreditPackages(creditPackages)
           if (creditPackages.length > 0) {
-            setSelectedPackage(creditPackages.find(p => p.popular) || creditPackages[0])
+            setSelectedPackage(creditPackages.find((p: any) => p.popular) || creditPackages[0])
           }
         }
       } catch (e) {
