@@ -1,0 +1,156 @@
+const SiteConfig = require('../models/SiteConfig');
+const PricingConfig = require('../models/PricingConfig');
+const logger = require('../config/logger');
+
+// Public config controller
+exports.getPublicConfigs = async (req, res) => {
+  try {
+    const configs = await SiteConfig.getPublicConfigs();
+
+    // Add credit packages from payment config if available
+    try {
+      const paymentCreditPerUsd = await SiteConfig.findOne({ key: 'payment_credit_per_usd' });
+      const paymentCreditPackages = await SiteConfig.findOne({ key: 'payment_credit_packages' });
+
+      if (paymentCreditPerUsd) {
+        configs.payment = configs.payment || {};
+        configs.payment.payment_credit_per_usd = parseFloat(paymentCreditPerUsd.value) || 10;
+      }
+
+      if (paymentCreditPackages) {
+        configs.payment = configs.payment || {};
+        configs.payment.payment_credit_packages = JSON.parse(paymentCreditPackages.value || '[]');
+      } else {
+        // Fallback default packages
+        configs.payment = configs.payment || {};
+        configs.payment.payment_credit_packages = [
+          { id: 1, credits: 100, price: 10, bonus: 0, popular: false, savings: '' },
+          { id: 2, credits: 500, price: 45, bonus: 50, popular: true, savings: '10% off' },
+          { id: 3, credits: 1000, price: 80, bonus: 200, popular: false, savings: '20% off' },
+          { id: 4, credits: 5000, price: 350, bonus: 1000, popular: false, savings: '30% off' }
+        ];
+      }
+    } catch (e) {
+      // Ignore errors, use defaults
+      configs.payment = configs.payment || {};
+      configs.payment.payment_credit_packages = [
+        { id: 1, credits: 100, price: 10, bonus: 0, popular: false, savings: '' },
+        { id: 2, credits: 500, price: 45, bonus: 50, popular: true, savings: '10% off' },
+        { id: 3, credits: 1000, price: 80, bonus: 200, popular: false, savings: '20% off' },
+        { id: 4, credits: 5000, price: 350, bonus: 1000, popular: false, savings: '30% off' }
+      ];
+    }
+
+    res.json({ success: true, data: configs });
+  } catch (error) {
+    logger.error('Get public configs error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get public configs', error: error.message });
+  }
+};
+
+// Public: get active pricing tiers (auto seed defaults if empty)
+exports.getPricingTiersPublic = async (req, res) => {
+  try {
+    // Check if there are any tiers
+    const count = await PricingConfig.countDocuments();
+    if (count === 0) {
+      // Seed default tiers as yêu cầu: <=100: $1, <=1000: $10, <=10000: $100, <=100000: $1000, <=1000000: $10000, <=10000000: $100000, >10000000: $1000000
+      const defaults = [
+        { minCards: 1, maxCards: 100, total: 1 },
+        { minCards: 101, maxCards: 1000, total: 10 },
+        { minCards: 1001, maxCards: 10000, total: 100 },
+        { minCards: 10001, maxCards: 100000, total: 1000 },
+        { minCards: 100001, maxCards: 1000000, total: 10000 },
+        { minCards: 1000001, maxCards: 10000000, total: 100000 },
+        { minCards: 10000001, maxCards: null, total: 1000000 }
+      ];
+      // Lưu dưới dạng pricePerCard = total / (maxCards hoặc 100 cho mức đầu, hoặc minCards nếu max null tạm dùng minCards)
+      await PricingConfig.insertMany(
+        defaults.map(t => ({
+          name: `${t.minCards}-${t.maxCards ?? '∞'} Cards Tier`,
+          minCards: t.minCards,
+          maxCards: t.maxCards === null ? null : t.maxCards,
+          // Tính đơn giá trên mỗi thẻ để dùng chung hệ thống, chỉ để phục vụ hiển thị tổng giá theo bảng tier
+          pricePerCard: t.maxCards ? (t.total / t.maxCards) : (t.total / t.minCards),
+          discountPercentage: 0,
+          isActive: true,
+          priority: 0,
+          applicableUserRoles: ['user']
+        }))
+      );
+    }
+
+    // Lấy danh sách active tiers, sắp xếp theo minCards tăng dần
+    const tiers = await PricingConfig.getActivePricingTiers('user');
+
+    // Chuyển đổi sang dạng hiển thị bảng giá tổng theo yêu cầu
+    const displayTiers = tiers.map(t => ({
+      min: t.minCards,
+      max: t.maxCards === null ? null : t.maxCards,
+      // tổng giá theo bảng giá mặc định
+      total: (() => {
+        if (t.maxCards === 100) return 1;
+        if (t.maxCards === 1000) return 10;
+        if (t.maxCards === 10000) return 100;
+        if (t.maxCards === 100000) return 1000;
+        if (t.maxCards === 1000000) return 10000;
+        if (t.maxCards === 10000000) return 100000;
+        if (t.maxCards === null && t.minCards === 10000001) return 1000000;
+        // fallback
+        return t.maxCards === null ? Math.round(t.pricePerCard * t.minCards) : Math.round(t.pricePerCard * t.maxCards);
+      })()
+    }));
+
+    res.json({ success: true, data: { tiers: displayTiers } });
+  } catch (error) {
+    logger.error('Get public pricing tiers error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get pricing tiers', error: error.message });
+  }
+};
+
+// GET /api/config/credit-packages - Unified endpoint for credit packages
+exports.getCreditPackages = async (req, res) => {
+  try {
+    // Get credit packages from SiteConfig
+    const creditPackagesConfig = await SiteConfig.findOne({ key: 'payment_credit_packages' });
+    const creditPerUsdConfig = await SiteConfig.findOne({ key: 'payment_credit_per_usd' });
+
+    const creditPackages = creditPackagesConfig?.value || [];
+    const creditPerUsd = creditPerUsdConfig?.value || 10;
+
+    // If no packages exist, create defaults
+    if (creditPackages.length === 0) {
+      const defaultPackages = [
+        { id: 1, name: 'Starter', credits: 100, price: 10, popular: false },
+        { id: 2, name: 'Basic', credits: 500, price: 45, popular: true },
+        { id: 3, name: 'Pro', credits: 1000, price: 80, popular: false },
+        { id: 4, name: 'Enterprise', credits: 5000, price: 350, popular: false }
+      ];
+
+      await SiteConfig.findOneAndUpdate(
+        { key: 'payment_credit_packages' },
+        { value: defaultPackages },
+        { upsert: true }
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          packages: defaultPackages,
+          creditPerUsd
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        packages: creditPackages,
+        creditPerUsd
+      }
+    });
+  } catch (error) {
+    logger.error('Get credit packages error:', error);
+    res.status(500).json({ success: false, message: 'Lỗi hệ thống', error: error.message });
+  }
+};

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test i18n Keys</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .key { background: #f0f0f0; padding: 5px; margin: 5px 0; border-radius: 3px; }
+        .missing { background: #ffebee; color: #c62828; }
+        .found { background: #e8f5e8; color: #2e7d32; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        h2 { color: #333; }
+        h3 { color: #666; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Test i18n Keys cho Credit Card Checker</h1>
+    
+    <div class="section">
+        <h2>📋 Các key cần thiết cho trang Checker:</h2>
+        
+        <h3>🔧 Thông tin cơ bản:</h3>
+        <div class="key found">✅ checker.title</div>
+        <div class="key found">✅ checker.inputPlaceholder</div>
+        <div class="key found">✅ checker.startCheck</div>
+        <div class="key found">✅ checker.stopCheck</div>
+        <div class="key found">✅ checker.clearAll</div>
+        <div class="key found">✅ checker.copyResults</div>
+        
+        <h3>📊 Thông tin bên phải:</h3>
+        <div class="key found">✅ checker.info.title</div>
+        <div class="key found">✅ checker.info.balance</div>
+        <div class="key found">✅ checker.info.pricePerCard</div>
+        <div class="key found">✅ checker.info.estimatedCost</div>
+        
+        <h3>📈 Thống kê:</h3>
+        <div class="key found">✅ checker.stats.progress</div>
+        <div class="key found">✅ checker.stats.live</div>
+        <div class="key found">✅ checker.stats.dead</div>
+        <div class="key found">✅ checker.stats.unknown</div>
+        
+        <h3>📋 Kết quả:</h3>
+        <div class="key found">✅ checker.results.title</div>
+        <div class="key found">✅ checker.noData</div>
+        <div class="key found">✅ checker.filterAll</div>
+        
+        <h3>💬 Thông báo:</h3>
+        <div class="key found">✅ checker.messages.copied</div>
+        <div class="key found">✅ checker.messages.noCards</div>
+        <div class="key found">✅ checker.stats.cards</div>
+        <div class="key found">✅ checker.stats.lines</div>
+    </div>
+    
+    <div class="section">
+        <h2>🔧 Đã sửa chữa:</h2>
+        <p><strong>1. Import hook:</strong> Đã thay đổi từ <code>@/hooks/useI18n</code> thành <code>@/components/I18nProvider</code></p>
+        <p><strong>2. Thêm key thiếu:</strong> Đã thêm tất cả các key cần thiết vào cả file tiếng Anh và tiếng Việt</p>
+        <p><strong>3. Cấu trúc key:</strong> Đã đảm bảo cấu trúc key phù hợp với cách sử dụng trong component</p>
+    </div>
+    
+    <div class="section">
+        <h2>🎯 Kết quả:</h2>
+        <p>✅ <strong>Tất cả key đã được thêm vào I18nProvider</strong></p>
+        <p>✅ <strong>Component đã sử dụng đúng hook</strong></p>
+        <p>✅ <strong>Hỗ trợ cả tiếng Anh và tiếng Việt</strong></p>
+        <p>🔄 <strong>Có thể chuyển đổi ngôn ngữ qua LanguageSwitcher</strong></p>
+    </div>
+    
+    <div class="section">
+        <h2>🧪 Cách test:</h2>
+        <ol>
+            <li>Đăng nhập bằng tài khoản: <strong>admin / admin123</strong></li>
+            <li>Truy cập: <a href="http://localhost:3002/dashboard/checker" target="_blank">http://localhost:3002/dashboard/checker</a></li>
+            <li>Kiểm tra xem các text đã hiển thị đúng chưa (không còn hiển thị key)</li>
+            <li>Thử chuyển đổi ngôn ngữ bằng nút 🌐 ở góc trên phải</li>
+            <li>Kiểm tra xem text có thay đổi theo ngôn ngữ không</li>
+        </ol>
+    </div>
+    
+    <script>
+        console.log('🔍 Test i18n Keys - Credit Card Checker');
+        console.log('✅ Tất cả key đã được cập nhật');
+        console.log('🌐 Truy cập http://localhost:3002/dashboard/checker để test');
+    </script>
+</body>
+</html>

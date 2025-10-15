@@ -1,0 +1,19 @@
+{
+  "merchantAddresses": {
+    "btc": "bc1qh470yfvl8m0udc5tyg4p9casvddtx9gndstrpj",
+    "ltc": "ltc1q6d8j7u6z3w27vshe9e74l8gxhtuar5n3n8fhml",
+    "bep20/usdt": "0xE4c697Af28946E0a3fC5F1Ce1639635eBEC2D5fE"
+  },
+  "webhookDomain": "https://checkcc.live",
+  "enabledCoins": {
+    "btc": true,
+    "ltc": true,
+    "bep20/usdt": true,
+    "trc20/usdt": false,
+    "erc20/usdt": false,
+    "eth": false,
+    "sol/sol": false,
+    "polygon/pol": false
+  }
+}
+
