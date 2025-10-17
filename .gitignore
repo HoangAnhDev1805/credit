@@ -214,3 +214,6 @@ backend/uploads/
 test-results/
 playwright-report/
 test-results.xml
+
+# Archives
+*.tar.gz
