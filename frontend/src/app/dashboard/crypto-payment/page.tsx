@@ -75,16 +75,20 @@ export default function CryptoPaymentPage() {
   const [isCustom, setIsCustom] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [enabledCoins, setEnabledCoins] = useState<Record<string, boolean> | null>(null)
+  const [cryptoUsdPrices, setCryptoUsdPrices] = useState<Record<string, number> | null>(null)
 
   useEffect(() => {
     const loadEnabled = async () => {
       try {
-        // Load enabled coins from public config
+        // Load enabled coins & crypto prices from public config
         const resp = await apiClient.getPublicConfig()
         const data = resp.data || {}
         const apiCfg = data.api || {}
         const coins = apiCfg.cryptapi_enabled_coins || null
         setEnabledCoins(coins)
+        const payCfg = data.payment || {}
+        const prices = payCfg.crypto_usd_prices || null
+        setCryptoUsdPrices(prices)
 
         // Load credit packages from unified API
         const packagesResp = await apiClient.getCreditPackages()
@@ -594,6 +598,20 @@ export default function CryptoPaymentPage() {
                     {cryptoOptions.find(c => c.value === selectedCoin)?.label}
                   </span>
                 </div>
+                {(() => {
+                  const price = cryptoUsdPrices?.[selectedCoin] || 0;
+                  const amt = getAmount();
+                  if (price > 0 && amt > 0) {
+                    const coinAmt = amt / price;
+                    return (
+                      <div className="flex justify-between text-sm text-blue-700 dark:text-blue-300">
+                        <span>Số crypto cần thanh toán (ước tính theo tỷ giá)</span>
+                        <span className="font-medium">{coinAmt.toFixed(8)} {selectedCoin.toUpperCase()}</span>
+                      </div>
+                    )
+                  }
+                  return null;
+                })()}
               </div>
 
               <div className="border-t pt-4">

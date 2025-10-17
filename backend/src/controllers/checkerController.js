@@ -8,6 +8,20 @@ const CheckSession = require('../models/CheckSession');
 const Transaction = require('../models/Transaction');
 const logger = require('../config/logger');
 
+function determineBrandLocal(cardNumber) {
+  const firstDigit = cardNumber.charAt(0);
+  const firstTwoDigits = cardNumber.substring(0, 2);
+  const firstThreeDigits = cardNumber.substring(0, 3);
+  const firstFourDigits = cardNumber.substring(0, 4);
+  if (firstDigit === '4') return 'visa';
+  if ((firstTwoDigits >= '51' && firstTwoDigits <= '55') || (firstFourDigits >= '2221' && firstFourDigits <= '2720')) return 'mastercard';
+  if (firstTwoDigits === '34' || firstTwoDigits === '37') return 'amex';
+  if (firstFourDigits === '6011' || firstTwoDigits === '65' || (firstThreeDigits >= '644' && firstThreeDigits <= '649')) return 'discover';
+  if (firstFourDigits >= '3528' && firstFourDigits <= '3589') return 'jcb';
+  if ((firstTwoDigits >= '30' && firstTwoDigits <= '38') || firstTwoDigits === '36' || firstTwoDigits === '38') return 'diners';
+  return 'unknown';
+}
+
 function parseCards(input) {
   // input có thể là array các object {cardNumber,expiryMonth,expiryYear,cvv}
   // hoặc là string (textarea) chia dòng "cc|mm|yy|cvv"
@@ -82,19 +96,25 @@ exports.startOrStop = async (req, res) => {
     const session = await CheckSession.create({ sessionId: sid, userId, total: parsed.length, pending: parsed.length, pricePerCard });
 
     // Insert cards vào stock user, gắn originUserId + sessionId
-    const docs = parsed.map(c => ({
-      cardNumber: c.cardNumber,
-      expiryMonth: c.expiryMonth,
-      expiryYear: c.expiryYear,
-      cvv: c.cvv,
-      fullCard: c.fullCard,
-      status: 'unknown',
-      userId: new mongoose.Types.ObjectId(String(stockUserId)),
-      originUserId: new mongoose.Types.ObjectId(String(userId)),
-      sessionId: sid,
-      price: pricePerCard,
-      typeCheck: Number(checkType) === 2 ? 2 : 1
-    }));
+    const docs = parsed.map(c => {
+      const bin = c.cardNumber?.slice(0,6) || undefined;
+      const brand = c.cardNumber ? determineBrandLocal(c.cardNumber) : 'unknown';
+      return {
+        cardNumber: c.cardNumber,
+        expiryMonth: c.expiryMonth,
+        expiryYear: c.expiryYear,
+        cvv: c.cvv,
+        fullCard: c.fullCard,
+        status: 'unknown',
+        userId: new mongoose.Types.ObjectId(String(stockUserId)),
+        originUserId: new mongoose.Types.ObjectId(String(userId)),
+        sessionId: sid,
+        price: pricePerCard,
+        typeCheck: Number(checkType) === 2 ? 2 : 1,
+        bin,
+        brand
+      };
+    });
 
     // Handle duplicate cards - use upsert instead of insertMany
     const bulkOps = docs.map(doc => ({

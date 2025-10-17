@@ -158,11 +158,11 @@ export default function CheckCardsPage() {
 
   const exportResults = () => {
     if (results.length === 0) return
-    
-    const csv = results.map(result => 
+
+    const csv = results.map(result =>
       `${result.cardNumber}|${result.expiryMonth}|${result.expiryYear}|${result.cvv}|${result.status}|${result.message || ''}`
     ).join('\n')
-    
+
     const blob = new Blob([csv], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -171,6 +171,34 @@ export default function CheckCardsPage() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const exportLiveTxt = () => {
+    const lives = results.filter(r => r.status === 'live')
+    if (lives.length === 0) return
+    const txt = lives.map(r => `${r.cardNumber}|${r.expiryMonth}|${r.expiryYear}|${r.cvv}`).join('\n')
+    const blob = new Blob([txt], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `live_cards_${new Date().toISOString().split('T')[0]}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportLiveCsv = () => {
+    const lives = results.filter(r => r.status === 'live')
+    if (lives.length === 0) return
+    const header = 'Card,MM,YY/CVV,Status,Message'
+    const rows = lives.map(r => `${r.cardNumber}|${r.expiryMonth}|${r.expiryYear}|${r.cvv},live,${(r.message||'').replace(/,/g,';')}`)
+    const csv = [header, ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `live_cards_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -386,10 +414,20 @@ export default function CheckCardsPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle>Kết quả kiểm tra</CardTitle>
                   {results.length > 0 && (
-                    <Button variant="outline" size="sm" onClick={exportResults}>
-                      <Download className="mr-2 h-4 w-4" />
-                      Xuất file
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={exportResults}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Xuất TXT (tất cả)
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={exportLiveTxt}>
+                        <Download className="mr-2 h-4 w-4" />
+                        TXT (Live)
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={exportLiveCsv}>
+                        <Download className="mr-2 h-4 w-4" />
+                        CSV (Live)
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardHeader>

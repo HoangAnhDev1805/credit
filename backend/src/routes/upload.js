@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const sharp = require('sharp');
 const { protect } = require('../middleware/auth');
 const router = express.Router();
 
@@ -71,7 +72,47 @@ router.post('/image', protect, upload.single('image'), async (req, res) => {
       error: error.message
     });
   }
+
+
 });
+
+// Upload OG/OpenGraph image with resize to 1200x630 and optimization
+router.post('/image/og', protect, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No image file provided' });
+    }
+
+    const inputPath = path.join(uploadsDir, req.file.filename);
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const baseName = path.basename(req.file.filename, path.extname(req.file.filename));
+    const outName = `${baseName}-og.jpg`;
+    const outputPath = path.join(uploadsDir, outName);
+
+    // Resize to 1200x630, center crop, and output JPEG with good quality
+    await sharp(inputPath)
+      .resize(1200, 630, { fit: 'cover', position: 'centre' })
+      .jpeg({ quality: 82, mozjpeg: true, progressive: true })
+      .toFile(outputPath);
+
+    // Optionally keep original; do not delete input in case needed elsewhere
+    const fileUrl = `/uploads/${outName}`;
+
+    return res.json({
+      success: true,
+      message: 'OG image uploaded and optimized successfully',
+      url: fileUrl,
+      filename: outName,
+      originalName: req.file.originalname,
+      size: fs.statSync(outputPath).size
+    });
+  } catch (error) {
+    console.error('Upload OG image error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to process OG image', error: error.message });
+  }
+});
+
+
 
 // Delete image endpoint
 router.delete('/image/:filename', protect, async (req, res) => {

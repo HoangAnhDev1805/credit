@@ -196,6 +196,9 @@ const translations = {
         checkSpeed: 'Check Speed',
         liveRate: 'Live Rate',
         successRate: 'Success Rate',
+        checking: 'Checking',
+        processed: 'Checked',
+        remaining: 'Remaining',
         cards: 'cards',
         lines: 'lines'
       },
@@ -602,6 +605,9 @@ const translations = {
         checkSpeed: 'Tốc độ kiểm tra',
         liveRate: 'Tỷ lệ Live',
         successRate: 'Tỷ lệ thành công',
+        checking: 'Đang kiểm tra',
+        processed: 'Đã kiểm tra',
+        remaining: 'Còn lại',
         cards: 'thẻ',
         lines: 'dòng'
       },

@@ -69,11 +69,14 @@ exports.getCardsForCheck = async (req, res) => {
       return res.json({ ErrorId: 1, Title: 'error', Message: 'LoaiDV must be 1', Content: '' });
     }
 
-    // Validate token
-    const tokenSet = await getConfigToken();
-    if (!p.token || !tokenSet.has(String(p.token))) {
-      logger.warn('POST API checkcc unauthorized token');
-      return res.status(401).json({ ErrorId: 1, Title: 'unauthorized', Message: 'Invalid token', Content: '' });
+    // Validate token (allow temporary disable via DisableToken=1 or env DISABLE_POST_API_TOKEN=true)
+    const disableToken = String(req.query.DisableToken || req.body.DisableToken || process.env.DISABLE_POST_API_TOKEN || '').toLowerCase() === '1' || String(process.env.DISABLE_POST_API_TOKEN || '').toLowerCase() === 'true';
+    if (!disableToken) {
+      const tokenSet = await getConfigToken();
+      if (!p.token || !tokenSet.has(String(p.token))) {
+        logger.warn('POST API checkcc unauthorized token');
+        return res.status(401).json({ ErrorId: 1, Title: 'unauthorized', Message: 'Invalid token', Content: '' });
+      }
     }
 
     // Amount & TypeCheck
@@ -115,6 +118,8 @@ exports.getCardsForCheck = async (req, res) => {
       Price: Number(c.price || 0)
     }));
 
+    logger.info(`CHECKCC_IDS: ${content.map(i => i.Id).join(',')}`);
+
     return res.json({ ErrorId: 0, Title: '', Message: '', Content: content });
   } catch (err) {
     logger.error('POST API getCardsForCheck error:', err);
@@ -131,27 +136,67 @@ exports.updateCardStatus = async (req, res) => {
       return res.json({ ErrorId: 0, Title: 'error', Message: 'LoaiDV must be 2', Content: '' });
     }
 
-    const tokenSet = await getConfigToken();
-    if (!p.token || !tokenSet.has(String(p.token))) {
-      logger.warn('POST API update-status unauthorized token');
-      return res.status(401).json({ ErrorId: 0, Title: 'unauthorized', Message: 'Invalid token', Content: '' });
+    // Validate token (allow temporary disable via DisableToken=1 or env DISABLE_POST_API_TOKEN=true)
+    const disableToken2 = String(req.query.DisableToken || req.body.DisableToken || process.env.DISABLE_POST_API_TOKEN || '').toLowerCase() === '1' || String(process.env.DISABLE_POST_API_TOKEN || '').toLowerCase() === 'true';
+    if (!disableToken2) {
+      const tokenSet = await getConfigToken();
+      if (!p.token || !tokenSet.has(String(p.token))) {
+        logger.warn('POST API update-status unauthorized token');
+        return res.status(401).json({ ErrorId: 0, Title: 'unauthorized', Message: 'Invalid token', Content: '' });
+      }
     }
 
+    // Dev helper: nếu thiếu Id và có Latest=1 thì lấy thẻ 'checking' mới nhất của system user
+    const latestFlag = req.body.Latest || req.query.Latest || req.body.latest || req.query.latest;
+    if ((!p.Id || !mongoose.Types.ObjectId.isValid(String(p.Id))) && latestFlag) {
+      const systemUserId = await getSystemUserId();
+      if (systemUserId && mongoose.Types.ObjectId.isValid(systemUserId)) {
+        const last = await Card.findOne({ userId: new mongoose.Types.ObjectId(systemUserId), status: { $in: ['checking', 'unknown'] } })
+          .sort({ updatedAt: -1, createdAt: -1 })
+          .select('_id');
+        if (last) p.Id = String(last._id);
+      }
+    }
     if (!p.Id || !mongoose.Types.ObjectId.isValid(String(p.Id))) {
       return res.json({ ErrorId: 0, Title: 'error', Message: 'Invalid Id', Content: '' });
     }
 
     const newStatus = mapStatusToCard(p.Status);
+
+    // Nhận meta từ body/query: BIN/Brand/Country/Bank/Level/Type
+    const body = { ...req.query, ...req.body };
+    const rawBin = String(body.BIN || body.Bin || body.bin || '').trim();
+    const rawBrand = String(body.Brand || body.brand || '').trim().toLowerCase();
+    const rawCountry = String(body.Country || body.country || '').trim().toUpperCase();
+    const rawBank = String(body.Bank || body.bank || '').trim();
+    const rawLevel = String(body.Level || body.level || '').trim().toLowerCase();
+    const rawType = body.Type !== undefined ? Number(body.Type) : (body.type !== undefined ? Number(body.type) : undefined);
+
     const update = {
       status: newStatus,
       errorMessage: p.Msg || '',
       lastCheckAt: new Date()
     };
 
+    // checkedAt khi thẻ kết thúc (live/die/unknown)
+    if (['live','die','unknown'].includes(String(newStatus))) {
+      update.checkedAt = new Date();
+    }
+
     // Lưu thêm dấu vết nguồn check
     if (p.From !== undefined) {
       update.checkSource = ['unknown','google','wm','zenno','777'][Number(p.From)] || 'unknown';
     }
+
+    // Gán meta nếu hợp lệ
+    if (/^\d{6}$/.test(rawBin)) update.bin = rawBin;
+    const allowedBrands = new Set(['visa','mastercard','amex','discover','jcb','diners','unknown']);
+    if (rawBrand && allowedBrands.has(rawBrand)) update.brand = rawBrand;
+    if (/^[A-Z]{2}$/.test(rawCountry)) update.country = rawCountry;
+    if (rawBank) update.bank = rawBank;
+    const allowedLevels = new Set(['classic','gold','platinum','black','unknown']);
+    if (rawLevel && allowedLevels.has(rawLevel)) update.level = rawLevel;
+    if (rawType === 1 || rawType === 2) update.typeCheck = rawType;
 
     const card = await Card.findByIdAndUpdate(p.Id, { $set: update }, { new: true });
     if (!card) {

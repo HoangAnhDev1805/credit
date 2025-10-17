@@ -73,6 +73,11 @@ export default function CheckerPage() {
     return results.filter((r) => r.status.toLowerCase() === filter)
   }, [results, filter])
 
+
+  const checkingCount = useMemo(() => results.filter(r => r.status === 'Checking').length, [results])
+  const processedCount = useMemo(() => results.filter(r => r.status !== 'Checking').length, [results])
+  const remainingCount = useMemo(() => Math.max(0, (stats.total || results.length) - processedCount), [stats.total, results, processedCount])
+
   // Polling
   const pollRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -287,6 +292,35 @@ export default function CheckerPage() {
     }
   }
 
+  const exportCheckedTxt = () => {
+    const checked = results.filter(r => r.status !== 'Checking')
+    if (checked.length === 0) return
+    const txt = checked.map(r => r.card).join('\n')
+    const blob = new Blob([txt], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `checked_cards_${new Date().toISOString().split('T')[0]}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportCheckedCsv = () => {
+    const checked = results.filter(r => r.status !== 'Checking')
+    if (checked.length === 0) return
+    const header = 'Card,Status,Message'
+    const rows = checked.map(r => `${r.card},${r.status},${(r.response||'').replace(/,/g,';')}`)
+    const csv = [header, ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `checked_cards_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+
   const estimatedCost = useMemo(() => (stats.total || 0) * (pricePerCard || 0), [stats.total, pricePerCard])
 
   return (
@@ -333,7 +367,7 @@ export default function CheckerPage() {
                 className="font-mono text-sm"
               />
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button onClick={isChecking ? handleStop : handleStart} size="lg">
+                <Button onClick={isChecking ? handleStop : handleStart} size="lg" variant={isChecking ? 'destructive' : 'default'}>
                   {isChecking ? (
                     <Square className="mr-2 h-4 w-4" />
                   ) : (
@@ -373,6 +407,14 @@ export default function CheckerPage() {
                   <Button onClick={handleCopy} variant="outline" size="sm">
                     <Copy className="mr-2 h-4 w-4" />
                     {t('checker.copyResults')}
+                  </Button>
+                  <Button onClick={exportCheckedTxt} variant="outline" size="sm">
+                    <Download className="mr-2 h-4 w-4" />
+                    {t('checker.downloadResults')} TXT
+                  </Button>
+                  <Button onClick={exportCheckedCsv} variant="outline" size="sm">
+                    <Download className="mr-2 h-4 w-4" />
+                    {t('checker.downloadResults')} CSV
                   </Button>
                 </div>
               </div>
@@ -461,6 +503,21 @@ export default function CheckerPage() {
                   <Badge variant="secondary">{stats.progress}%</Badge>
                 </div>
                 <Progress value={stats.progress} className="h-2" />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 border rounded-lg">
+                  <div className="text-sm text-muted-foreground">{t('checker.stats.checking') || 'Checking'}</div>
+                  <div className="text-xl font-bold">{checkingCount}</div>
+                </div>
+                <div className="text-center p-3 border rounded-lg">
+                  <div className="text-sm text-muted-foreground">{t('checker.stats.processed') || 'Checked'}</div>
+                  <div className="text-xl font-bold">{processedCount}</div>
+                </div>
+                <div className="text-center p-3 border rounded-lg">
+                  <div className="text-sm text-muted-foreground">{t('checker.stats.remaining') || 'Remaining'}</div>
+                  <div className="text-xl font-bold">{remainingCount}</div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

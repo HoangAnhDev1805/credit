@@ -159,6 +159,11 @@ export interface FeatureCardProps {
     onClick: () => void
     variant?: 'default' | 'outline' | 'ghost'
   }
+  secondaryAction?: {
+    label: string
+    onClick: () => void
+    variant?: 'default' | 'outline' | 'destructive' | 'ghost'
+  }
   className?: string
   disabled?: boolean
   loading?: boolean
@@ -170,6 +175,7 @@ export function FeatureCard({
   icon: Icon,
   badge,
   action,
+  secondaryAction,
   className = '',
   disabled = false,
   loading = false
@@ -201,19 +207,33 @@ export function FeatureCard({
         </div>
         <CardDescription className="mt-2">{description}</CardDescription>
       </CardHeader>
-      {action && (
+      {(action || secondaryAction) && (
         <CardContent className="pt-0">
-          <Button
-            variant={action.variant || 'default'}
-            onClick={action.onClick}
-            disabled={disabled || loading}
-            className="w-full"
-          >
-            {loading && (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+          <div className="flex gap-2">
+            {action && (
+              <Button
+                variant={action.variant || 'default'}
+                onClick={action.onClick}
+                disabled={disabled || loading}
+                className="w-full"
+              >
+                {loading && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                )}
+                {action.label}
+              </Button>
             )}
-            {action.label}
-          </Button>
+            {secondaryAction && (
+              <Button
+                variant={secondaryAction.variant || 'outline'}
+                onClick={secondaryAction.onClick}
+                disabled={disabled || loading}
+                className="w-full"
+              >
+                {secondaryAction.label}
+              </Button>
+            )}
+          </div>
         </CardContent>
       )}
     </Card>

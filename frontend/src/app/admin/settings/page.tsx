@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ImageUpload } from '@/components/shared/ImageUpload'
 import { apiClient } from '@/lib/api'
-import { Settings, Globe, DollarSign, Eye, CreditCard, Palette, Languages, Zap, Tag, Bitcoin } from 'lucide-react'
+import { Settings, Globe, DollarSign, Eye, CreditCard, Palette, Languages, Zap, Tag, Bitcoin, Shield, Share2, Twitter, Mail } from 'lucide-react'
 
 interface SiteConfig {
   siteName: string
@@ -54,6 +54,7 @@ interface PaymentConfig {
   creditPackages: Array<{ id: number; name: string; credits: number; price: number; popular: boolean }>;
   minDepositAmount: number;
   maxDepositAmount: number;
+  cryptoUsdPrices?: Record<string, number>;
 }
 
 
@@ -73,6 +74,11 @@ export default function AdminSettings() {
   const { success, error: showError } = useToast()
 
   useEffect(() => {
+    // Đảm bảo API client có token trước khi gọi các endpoint admin (tránh race khi rehydrate zustand)
+    try {
+      const t = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : ''
+      if (t) apiClient.setToken(t)
+    } catch {}
     fetchConfigs()
   }, [])
 
@@ -246,98 +252,47 @@ export default function AdminSettings() {
   }
 
 
-  const siteConfigFields: FormField[] = [
-    {
-      name: 'logo',
-      label: 'Logo Website',
-      type: 'image',
-      placeholder: 'Tải lên logo website (PNG, SVG khuyến nghị)'
-    },
-    {
-      name: 'favicon',
-      label: 'Favicon',
-      type: 'image',
-      placeholder: 'Tải lên favicon (ICO, PNG 32x32px)'
-    },
-    {
-      name: 'thumbnail',
-      label: 'Thumbnail Website',
-      type: 'image',
-      placeholder: 'Hình đại diện website (1200x630px khuyến nghị)'
-    },
-    {
-      name: 'siteName',
-      label: 'Tên website',
-      type: 'text',
-      required: true,
-      placeholder: 'VD: Credit Card Checker'
-    },
-    {
-      name: 'siteDescription',
-      label: 'Mô tả website',
-      type: 'textarea',
-      placeholder: 'Mô tả ngắn về website...'
-    },
-    {
-      name: 'siteKeywords',
-      label: 'Từ khóa SEO',
-      type: 'text',
-      placeholder: 'credit card, checker, validation'
-    },
-    {
-      name: 'seoTitle',
-      label: 'SEO Title',
-      type: 'text',
-      placeholder: 'Tiêu đề hiển thị trên search engine'
-    },
-    {
-      name: 'seoDescription',
-      label: 'SEO Description',
-      type: 'textarea',
-      placeholder: 'Mô tả hiển thị trên search engine'
-    },
-    {
-      name: 'ogTitle',
-      label: 'Open Graph Title',
-      type: 'text',
-      placeholder: 'Tiêu đề khi share trên social media'
-    },
-    {
-      name: 'ogDescription',
-      label: 'Open Graph Description',
-      type: 'textarea',
-      placeholder: 'Mô tả khi share trên social media'
-    },
-    {
-      name: 'ogImage',
-      label: 'Open Graph Image URL',
-      type: 'text',
-      placeholder: 'https://example.com/og-image.jpg'
-    },
-    {
-      name: 'contactEmail',
-      label: 'Email liên hệ',
-      type: 'email',
-      placeholder: 'contact@example.com'
-    },
-    {
-      name: 'supportPhone',
-      label: 'Số điện thoại hỗ trợ',
-      type: 'text',
-      placeholder: '+84 123 456 789'
-    },
-    {
-      name: 'address',
-      label: 'Địa chỉ',
-      type: 'textarea',
-      placeholder: 'Địa chỉ công ty...'
-    },
-    {
-      name: 'footerText',
-      label: 'Text footer',
-      type: 'textarea',
-      placeholder: 'Copyright text và thông tin khác...'
-    }
+  // Gom nhóm field theo section (UI-only). Lưu ý: KHÔNG thay đổi logic dữ liệu.
+  const brandingFields: FormField[] = [
+    { name: 'logo', label: 'Logo Website', type: 'image', placeholder: 'Tải lên logo website (PNG, SVG khuyến nghị)' },
+    { name: 'favicon', label: 'Favicon', type: 'image', placeholder: 'Tải lên favicon (ICO, PNG 32x32px)' },
+    { name: 'thumbnail', label: 'Thumbnail Website', type: 'image', placeholder: 'Hình đại diện website (1200x630px khuyến nghị). Ảnh này cũng được dùng cho Open Graph & Twitter.' },
+    { name: 'siteName', label: 'Tên website', type: 'text', required: true, placeholder: 'VD: Credit Card Checker' },
+  ]
+
+  const seoBasicFields: FormField[] = [
+    { name: 'seoTitle', label: 'SEO Title', type: 'text', placeholder: 'Tiêu đề hiển thị trên search engine' },
+    { name: 'seoDescription', label: 'SEO Description', type: 'textarea', placeholder: 'Mô tả hiển thị trên search engine' },
+    { name: 'siteKeywords', label: 'Từ khóa SEO', type: 'text', placeholder: 'credit card, checker, validation' },
+    { name: 'canonicalUrl', label: 'Canonical URL (base domain)', type: 'text', placeholder: 'https://checkcc.live', description: 'URL gốc của website. Dùng để tạo canonical cho mọi trang.' },
+  ]
+
+  const robotsFields: FormField[] = [
+    { name: 'robotsIndex', label: 'Cho phép Index', type: 'switch' },
+    { name: 'robotsFollow', label: 'Cho phép Follow', type: 'switch' },
+    { name: 'robotsAdvanced', label: 'Robots nâng cao', type: 'text', placeholder: 'max-snippet:-1, max-image-preview:large', description: 'Tùy chọn nâng cao: max-snippet, max-image-preview, max-video-preview, noarchive ...' },
+  ]
+
+  const ogFields: FormField[] = [
+    { name: 'ogTitle', label: 'Open Graph Title', type: 'text', placeholder: 'Tiêu đề khi share trên social media' },
+    { name: 'ogDescription', label: 'Open Graph Description', type: 'textarea', placeholder: 'Mô tả khi share trên social media' },
+    { name: 'ogType', label: 'OG Type', type: 'text', placeholder: 'website' },
+    { name: 'ogSiteName', label: 'OG Site Name', type: 'text', placeholder: 'Tên trang trên OG' },
+    // Không có ogImage (tận dụng thumbnail)
+  ]
+
+  const twitterFields: FormField[] = [
+    { name: 'twitterCard', label: 'Twitter Card', type: 'text', placeholder: 'summary_large_image' },
+    { name: 'twitterSite', label: 'Twitter @site', type: 'text', placeholder: '@yourbrand' },
+    { name: 'twitterCreator', label: 'Twitter @creator', type: 'text', placeholder: '@creator' },
+    // Không có twitterImage (tận dụng thumbnail)
+  ]
+
+  const contactFields: FormField[] = [
+    { name: 'contactEmail', label: 'Email liên hệ', type: 'email', placeholder: 'contact@example.com' },
+    { name: 'supportPhone', label: 'Số điện thoại hỗ trợ', type: 'text', placeholder: '+84 123 456 789' },
+    { name: 'address', label: 'Địa chỉ', type: 'textarea', placeholder: 'Địa chỉ công ty...' },
+    { name: 'footerText', label: 'Text footer', type: 'textarea', placeholder: 'Copyright text và thông tin khác...' },
   ]
 
   const pricingConfigFields: FormField[] = [
@@ -384,52 +339,52 @@ export default function AdminSettings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6 gap-1">
-          <TabsTrigger value="site" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+        <TabsList className="flex w-full gap-2 overflow-x-auto md:grid md:grid-cols-3 lg:grid-cols-6 md:overflow-visible">
+          <TabsTrigger value="site" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
             <Globe className="h-4 w-4 mr-2" />
-            <div className="text-left">
-              <div className="font-medium">Cấu hình chung</div>
-              <div className="text-xs opacity-70">Site & SEO</div>
+            <div className="text-left min-w-0">
+              <div className="font-medium truncate">Cấu hình chung</div>
+              <div className="text-xs opacity-70 truncate">Site & SEO</div>
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="language" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white">
+          <TabsTrigger value="language" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-purple-500 data-[state=active]:text-white">
             <Languages className="h-4 w-4 mr-2" />
-            <div className="text-left">
-              <div className="font-medium">Giao diện</div>
-              <div className="text-xs opacity-70">UI & Ngôn ngữ</div>
+            <div className="text-left min-w-0">
+              <div className="font-medium truncate">Giao diện</div>
+              <div className="text-xs opacity-70 truncate">UI & Ngôn ngữ</div>
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="payment" className="data-[state=active]:bg-green-500 data-[state=active]:text-white">
+          <TabsTrigger value="payment" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-green-500 data-[state=active]:text-white">
             <CreditCard className="h-4 w-4 mr-2" />
-            <div className="text-left">
-              <div className="font-medium">Thanh toán</div>
-              <div className="text-xs opacity-70">Credit & Payment</div>
+            <div className="text-left min-w-0">
+              <div className="font-medium truncate">Thanh toán</div>
+              <div className="text-xs opacity-70 truncate">Credit & Payment</div>
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="cryptapi" className="data-[state=active]:bg-orange-500 data-[state=active]:text-white">
+          <TabsTrigger value="cryptapi" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-orange-500 data-[state=active]:text-white">
             <Bitcoin className="h-4 w-4 mr-2" />
-            <div className="text-left">
-              <div className="font-medium">API & Tích hợp</div>
-              <div className="text-xs opacity-70">CryptAPI</div>
+            <div className="text-left min-w-0">
+              <div className="font-medium truncate">API & Tích hợp</div>
+              <div className="text-xs opacity-70 truncate">CryptAPI</div>
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="pricing" className="data-[state=active]:bg-indigo-500 data-[state=active]:text-white">
+          <TabsTrigger value="pricing" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-indigo-500 data-[state=active]:text-white">
             <Tag className="h-4 w-4 mr-2" />
-            <div className="text-left">
-              <div className="font-medium">Bảng giá</div>
-              <div className="text-xs opacity-70">Pricing Tiers</div>
+            <div className="text-left min-w-0">
+              <div className="font-medium truncate">Bảng giá</div>
+              <div className="text-xs opacity-70 truncate">Pricing Tiers</div>
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="preview" className="data-[state=active]:bg-gray-500 data-[state=active]:text-white">
+          <TabsTrigger value="preview" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-gray-500 data-[state=active]:text-white">
             <Eye className="h-4 w-4 mr-2" />
-            <div className="text-left">
-              <div className="font-medium">Preview</div>
-              <div className="text-xs opacity-70">Xem trước</div>
+            <div className="text-left min-w-0">
+              <div className="font-medium truncate">Preview</div>
+              <div className="text-xs opacity-70 truncate">Xem trước</div>
             </div>
           </TabsTrigger>
         </TabsList>
@@ -443,18 +398,117 @@ export default function AdminSettings() {
                 Cấu hình chung - Website & SEO
               </CardTitle>
               <CardDescription>
-                Quản lý thông tin cơ bản của website, logo, favicon và cấu hình SEO để tối ưu hóa công cụ tìm kiếm
+                Quản lý thông tin cơ bản của website, logo, favicon và cấu hình SEO. Ảnh OG/Twitter sẽ tự dùng Thumbnail, favicon dùng Logo khi không đặt riêng.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <SharedForm
-                fields={siteConfigFields}
-                initialData={siteConfig || {}}
-                onSubmit={handleSaveSiteConfig}
-                submitText="Lưu cấu hình"
-                loading={saving}
-                columns={2}
-              />
+            <CardContent className="space-y-6">
+              {/* Branding & Logo */}
+              <details className="group border rounded-lg" open>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer bg-blue-50/60 dark:bg-blue-950/20">
+                  <Palette className="h-4 w-4 text-blue-600" />
+                  <span className="font-medium text-blue-700 dark:text-blue-300">Branding & Logo</span>
+                </summary>
+                <div className="p-4">
+                  <SharedForm
+                    fields={brandingFields}
+                    initialData={siteConfig || {}}
+                    onSubmit={handleSaveSiteConfig}
+                    submitText="Lưu Branding"
+                    loading={saving}
+                    columns={2}
+                  />
+                </div>
+              </details>
+
+              {/* SEO cơ bản */}
+              <details className="group border rounded-lg" open>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer bg-green-50/60 dark:bg-green-950/20">
+                  <Settings className="h-4 w-4 text-green-600" />
+                  <span className="font-medium text-green-700 dark:text-green-300">SEO cơ bản</span>
+                </summary>
+                <div className="p-4">
+                  <SharedForm
+                    fields={seoBasicFields}
+                    initialData={siteConfig || {}}
+                    onSubmit={handleSaveSiteConfig}
+                    submitText="Lưu SEO cơ bản"
+                    loading={saving}
+                    columns={2}
+                  />
+                </div>
+              </details>
+
+              {/* Robots & Indexing */}
+              <details className="group border rounded-lg" open>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer bg-orange-50/60 dark:bg-orange-950/20">
+                  <Shield className="h-4 w-4 text-orange-600" />
+                  <span className="font-medium text-orange-700 dark:text-orange-300">Robots & Indexing</span>
+                </summary>
+                <div className="p-4">
+                  <SharedForm
+                    fields={robotsFields}
+                    initialData={siteConfig || {}}
+                    onSubmit={handleSaveSiteConfig}
+                    submitText="Lưu Robots"
+                    loading={saving}
+                    columns={2}
+                  />
+                </div>
+              </details>
+
+              {/* Open Graph */}
+              <details className="group border rounded-lg" open>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer bg-[#e7f0ff] dark:bg-blue-950/20">
+                  <Share2 className="h-4 w-4 text-[#1877F2]" />
+                  <span className="font-medium text-[#1877F2]">Open Graph (Facebook/LinkedIn)</span>
+                </summary>
+                <div className="p-4">
+                  <SharedForm
+                    fields={ogFields}
+                    initialData={siteConfig || {}}
+                    onSubmit={handleSaveSiteConfig}
+                    submitText="Lưu Open Graph"
+                    loading={saving}
+                    columns={2}
+                  />
+                </div>
+              </details>
+
+              {/* Twitter Card */}
+              <details className="group border rounded-lg" open>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer bg-[#E8F5FD] dark:bg-sky-950/20">
+                  <Twitter className="h-4 w-4 text-[#1DA1F2]" />
+                  <span className="font-medium text-[#1DA1F2]">Twitter Card</span>
+                </summary>
+                <div className="p-4">
+                  <SharedForm
+                    fields={twitterFields}
+                    initialData={siteConfig || {}}
+                    onSubmit={handleSaveSiteConfig}
+                    submitText="Lưu Twitter Card"
+                    loading={saving}
+                    columns={2}
+                  />
+                </div>
+              </details>
+
+              {/* Liên hệ & Footer */}
+              <details className="group border rounded-lg" open>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer bg-purple-50/60 dark:bg-purple-950/20">
+                  <Mail className="h-4 w-4 text-purple-600" />
+                  <span className="font-medium text-purple-700 dark:text-purple-300">Liên hệ & Footer</span>
+                </summary>
+                <div className="p-4">
+                  <SharedForm
+                    fields={contactFields}
+                    initialData={siteConfig || {}}
+                    onSubmit={handleSaveSiteConfig}
+                    submitText="Lưu Liên hệ & Footer"
+                    loading={saving}
+                    columns={2}
+                  />
+                </div>
+              </details>
             </CardContent>
           </Card>
         </TabsContent>
@@ -698,9 +752,9 @@ export default function AdminSettings() {
                 <div>
                   <h3 className="font-semibold mb-2">Facebook Share Preview</h3>
                   <div className="border rounded-lg overflow-hidden bg-white max-w-md">
-                    {siteConfig?.ogImage && (
+                    {siteConfig?.thumbnail && (
                       <img
-                        src={siteConfig.ogImage}
+                        src={siteConfig.thumbnail}
                         alt="OG Preview"
                         className="w-full h-48 object-cover"
                       />
@@ -751,7 +805,12 @@ function PaymentConfigForm({ config, onSave, saving }: {
   const [formData, setFormData] = useState(config)
 
   useEffect(() => {
-    setFormData(config)
+    // B sung default cryptoUsdPrices nbfu ch a c8
+    const defaults: Record<string, number> = { 'btc': 60000, 'eth': 3000, 'ltc': 70, 'trc20/usdt': 1, 'bep20/usdt': 1, 'erc20/usdt': 1, 'sol/sol': 150, 'polygon/pol': 0.7 }
+    setFormData({
+      ...config,
+      cryptoUsdPrices: { ...defaults, ...(config.cryptoUsdPrices || {}) }
+    })
   }, [config])
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -848,6 +907,40 @@ function PaymentConfigForm({ config, onSave, saving }: {
             onChange={(e) => setFormData(prev => ({ ...prev, maxDepositAmount: parseFloat(e.target.value) || 0 }))}
           />
         </div>
+      </div>
+
+      {/* Crypto USD Prices per coin */}
+      <div className="space-y-3">
+        <Label>Tỷ giá thị trường (USD cho 1 đơn vị coin)</Label>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            { key: 'btc', label: 'BTC (USD/BTC)' },
+            { key: 'eth', label: 'ETH (USD/ETH)' },
+            { key: 'ltc', label: 'LTC (USD/LTC)' },
+            { key: 'trc20/usdt', label: 'USDT TRC20 (USD/USDT)' },
+            { key: 'bep20/usdt', label: 'USDT BEP20 (USD/USDT)' },
+            { key: 'erc20/usdt', label: 'USDT ERC20 (USD/USDT)' },
+            { key: 'sol/sol', label: 'SOL (USD/SOL)' },
+            { key: 'polygon/pol', label: 'POL (USD/POL)' },
+          ].map((c) => (
+            <div key={c.key}>
+              <Label>{c.label}</Label>
+              <Input
+                type="number"
+                step="0.00000001"
+                value={Number((formData.cryptoUsdPrices?.[c.key] ?? 0).toString())}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setFormData(prev => ({
+                    ...prev,
+                    cryptoUsdPrices: { ...(prev.cryptoUsdPrices || {}), [c.key]: v }
+                  }));
+                }}
+              />
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Các tỷ giá này dùng để quy đổi số lượng crypto cần thanh toán từ USD.</p>
       </div>
 
       {/* Credit Packages */}

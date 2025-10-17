@@ -356,6 +356,23 @@ siteConfigSchema.statics.initializeDefaults = async function() {
     { key: 'site_description', value: 'Professional Credit Card Checking Service', type: 'textarea', category: 'seo', label: 'Site Description', isPublic: true },
     { key: 'site_keywords', value: 'credit card, checker, validation, security', type: 'text', category: 'seo', label: 'Site Keywords', isPublic: true },
 
+    // Extended SEO / Social meta
+    { key: 'canonical_url', value: 'https://checkcc.live', type: 'url', category: 'seo', label: 'Canonical Base URL', isPublic: true },
+    { key: 'robots_index', value: true, type: 'boolean', category: 'seo', label: 'Robots: Index', isPublic: true },
+    { key: 'robots_follow', value: true, type: 'boolean', category: 'seo', label: 'Robots: Follow', isPublic: true },
+    { key: 'robots_advanced', value: '', type: 'text', category: 'seo', label: 'Robots Advanced (optional)', isPublic: true },
+    { key: 'og_type', value: 'website', type: 'text', category: 'seo', label: 'OpenGraph Type', isPublic: true },
+    { key: 'og_site_name', value: 'Credit Card Checker', type: 'text', category: 'seo', label: 'OpenGraph Site Name', isPublic: true },
+    { key: 'og_image', value: '/logo.png', type: 'file', category: 'seo', label: 'OpenGraph Image', isPublic: true },
+    { key: 'og_title', value: 'Credit Card Checker', type: 'text', category: 'seo', label: 'OpenGraph Title', isPublic: true },
+    { key: 'og_description', value: 'Professional Credit Card Checking Service', type: 'textarea', category: 'seo', label: 'OpenGraph Description', isPublic: true },
+    { key: 'twitter_card', value: 'summary_large_image', type: 'text', category: 'seo', label: 'Twitter Card', isPublic: true },
+    { key: 'twitter_site', value: '', type: 'text', category: 'seo', label: 'Twitter @site', isPublic: true },
+    { key: 'twitter_creator', value: '', type: 'text', category: 'seo', label: 'Twitter @creator', isPublic: true },
+    { key: 'twitter_image', value: '/logo.png', type: 'file', category: 'seo', label: 'Twitter Image', isPublic: true },
+
+    // Social Links
+    { key: 'social_links', value: { facebook: '', twitter: '', linkedin: '', youtube: '' }, type: 'json', category: 'social', label: 'Social Links', isPublic: true },
     // General
     { key: 'site_logo', value: '/logo.png', type: 'file', category: 'general', label: 'Site Logo', isPublic: true },
     { key: 'site_favicon', value: '/favicon.ico', type: 'file', category: 'general', label: 'Site Favicon', isPublic: true },
@@ -380,6 +397,8 @@ siteConfigSchema.statics.initializeDefaults = async function() {
       { id: 4, name: 'Enterprise', credits: 5000, price: 350, popular: false }
     ], type: 'json', category: 'payment', label: 'Credit Packages' },
     { key: 'payment_credit_per_usd', value: 10, type: 'number', category: 'payment', label: 'Credits per 1 USD', isPublic: true },
+    // Crypto USD prices per coin (public)
+    { key: 'crypto_usd_prices', value: { 'btc': 60000, 'ltc': 70, 'eth': 3000, 'bep20/usdt': 1, 'trc20/usdt': 1, 'erc20/usdt': 1, 'sol/sol': 150, 'polygon/pol': 0.7 }, type: 'json', category: 'payment', label: 'Crypto USD Prices (per 1 coin)', isPublic: true },
 
     // UI / Language
     { key: 'ui_default_language', value: 'vi', type: 'text', category: 'ui', label: 'Default Language', isPublic: true },
@@ -405,26 +424,36 @@ siteConfigSchema.statics.initializeDefaults = async function() {
     { key: 'feature_show_crypto_payment', value: true, type: 'boolean', category: 'features', label: 'Show Crypto Payment menu', isPublic: true }
   ];
 
-  for (const config of defaultConfigs) {
-    const existing = await this.findOne({ key: config.key });
-    if (!existing) {
-      await this.create(config);
-    } else {
-      // Cập nhật metadata nhưng KHÔNG ghi đè value hiện có
-      await this.updateOne(
-        { key: config.key },
-        {
-          $set: {
-            type: config.type,
-            category: config.category,
-            label: config.label,
-            isPublic: !!config.isPublic,
-            isEditable: config.isEditable !== undefined ? config.isEditable : true,
-            sortOrder: config.sortOrder || 0
-          }
+  for (const cfg of defaultConfigs) {
+    // Bước 1: upsert chỉ với $setOnInsert để KHÔNG xung đột key khi đồng thời có $set
+    await this.updateOne(
+      { key: cfg.key },
+      {
+        $setOnInsert: {
+          key: cfg.key,
+          value: cfg.value
         }
-      );
-    }
+      },
+      { upsert: true }
+    );
+
+    // Bước 2: cập nhật metadata bằng $set ở MỘT lệnh riêng (tránh conflict Mongo code 40)
+    await this.updateOne(
+      { key: cfg.key },
+      {
+        $set: {
+          type: cfg.type,
+          category: cfg.category,
+          label: cfg.label,
+          description: cfg.description || undefined,
+          placeholder: cfg.placeholder || undefined,
+          defaultValue: cfg.defaultValue || undefined,
+          isPublic: !!cfg.isPublic,
+          isEditable: cfg.isEditable !== undefined ? cfg.isEditable : true,
+          sortOrder: cfg.sortOrder || 0
+        }
+      }
+    );
   }
 
   return defaultConfigs.length;

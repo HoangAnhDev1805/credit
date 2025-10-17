@@ -22,11 +22,22 @@ interface Card {
     username: string
     email: string
   }
-  checkedAt: string
+  originUserId?: {
+    _id: string
+    username: string
+    email: string
+  } | null
+  checkedAt?: string | null
   createdAt: string
-  bin: string
-  country: string
-  bank: string
+  bin?: string | null
+  country?: string | null
+  bank?: string | null
+  level?: string | null
+  typeCheck?: string | null
+  sessionId?: string | null
+  apiId?: string | null
+  price?: number | null
+  errorMessage?: string | null
 }
 
 export default function CardManagement() {
@@ -82,22 +93,21 @@ export default function CardManagement() {
     success('Đã sao chép', 'Thông tin thẻ đã được sao chép vào clipboard')
   }
 
-  const handleExportCards = () => {
-    const filteredCards = cards.filter(card => {
+  const filterCards = () => {
+    return cards.filter(card => {
       if (statusFilter !== 'all' && card.status !== statusFilter) return false
       if (brandFilter !== 'all' && card.brand !== brandFilter) return false
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase()
         const cardLower = card.fullCard.toLowerCase()
-        
         switch (searchPosition) {
           case 'start':
             return cardLower.startsWith(searchLower)
           case 'end':
             return cardLower.endsWith(searchLower)
           case 'middle':
-            return cardLower.includes(searchLower) && 
-                   !cardLower.startsWith(searchLower) && 
+            return cardLower.includes(searchLower) &&
+                   !cardLower.startsWith(searchLower) &&
                    !cardLower.endsWith(searchLower)
           default:
             return cardLower.includes(searchLower)
@@ -105,12 +115,19 @@ export default function CardManagement() {
       }
       return true
     })
+  }
+
+  const handleExportCards = () => {
+    const filteredCards = filterCards()
 
     const csvContent = [
-      'Card,Status,Brand,User,Checked Date',
-      ...filteredCards.map(card => 
-        `"${card.fullCard}","${card.status}","${card.brand}","${card.userId.username}","${new Date(card.checkedAt).toLocaleString()}"`
-      )
+      'Card,Status,Brand,BIN,Type,Level,Bank,Country,User,OriginUser,SessionId,ApiId,Price,ErrorMessage,Checked Date,Created Date',
+      ...filteredCards.map(card => {
+        const checked = card.checkedAt ? new Date(card.checkedAt).toLocaleString('vi-VN') : ''
+        const created = card.createdAt ? new Date(card.createdAt).toLocaleString('vi-VN') : ''
+        const originUser = card.originUserId ? card.originUserId.username : ''
+        return `"${card.fullCard}","${card.status}","${card.brand||''}","${card.bin||''}","${card.typeCheck||''}","${card.level||''}","${card.bank||''}","${card.country||''}","${card.userId.username}","${originUser}","${card.sessionId||''}","${card.apiId||''}","${card.price??''}","${(card.errorMessage||'').replace(/"/g,'\"')}","${checked}","${created}"`
+      })
     ].join('\n')
 
     const blob = new Blob([csvContent], { type: 'text/csv' })
@@ -120,8 +137,21 @@ export default function CardManagement() {
     a.download = `cards_export_${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     window.URL.revokeObjectURL(url)
-    
-    success('Xuất file thành công', `Đã xuất ${filteredCards.length} thẻ`)
+    success('Xuất file thành công', `Đã xuất ${filteredCards.length} thẻ (CSV)`)
+  }
+
+  const handleExportTxt = () => {
+    const filteredCards = filterCards()
+    const txt = filteredCards.map(c => c.fullCard).join('\n')
+
+    const blob = new Blob([txt], { type: 'text/plain' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cards_export_${new Date().toISOString().split('T')[0]}.txt`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    success('Xuất file thành công', `Đã xuất ${filteredCards.length} thẻ (TXT)`)
   }
 
   const getStatusColor = (status: string) => {
@@ -147,7 +177,7 @@ export default function CardManagement() {
       key: 'fullCard',
       label: 'Thông tin thẻ',
       width: '300px',
-      render: (value, row) => (
+      render: (value, row: Card) => (
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
             <span className="font-mono text-sm">{value}</span>
@@ -162,7 +192,7 @@ export default function CardManagement() {
           </div>
           <div className="flex items-center space-x-2 text-xs text-muted-foreground">
             {getBrandIcon(row.brand)}
-            <span>{row.brand}</span>
+            <span>{row.brand || 'N/A'}</span>
             {row.bin && <span>BIN: {row.bin}</span>}
           </div>
         </div>
@@ -173,15 +203,89 @@ export default function CardManagement() {
       label: 'Trạng thái',
       align: 'center',
       filterable: true,
-      render: (value) => (
-        <Badge 
+      render: (value: Card['status']) => (
+        <Badge
           variant={getStatusColor(value)}
-          className={value === 'live' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : 
+          className={value === 'live' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' :
                      value === 'die' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100' : ''}
         >
-          {value.toUpperCase()}
+          {value === 'live' ? 'VALID' : value === 'die' ? 'INVALID' : value.toUpperCase()}
         </Badge>
       )
+    },
+    {
+      key: 'bin',
+      label: 'BIN',
+      align: 'center',
+      render: (value?: string | null) => value || 'N/A'
+    },
+    {
+      key: 'brand',
+      label: 'Brand',
+      align: 'center',
+      render: (value?: string | null) => value || 'N/A'
+    },
+    {
+      key: 'typeCheck',
+      label: 'Type',
+      align: 'center',
+      render: (value?: string | null) => value || 'N/A'
+    },
+    {
+      key: 'level',
+      label: 'Level',
+      align: 'center',
+      render: (value?: string | null) => value || 'N/A'
+    },
+    {
+      key: 'bank',
+      label: 'Ngân hàng',
+      render: (value?: string | null) => value || 'N/A'
+    },
+    {
+      key: 'country',
+      label: 'Quốc gia',
+      align: 'center',
+      render: (value?: string | null) => value || 'N/A'
+    },
+    {
+      key: 'price',
+      label: 'Giá',
+      align: 'right',
+      render: (value?: number | null) => (value ?? 0).toLocaleString('vi-VN', { style: 'currency', currency: 'USD' })
+    },
+    {
+      key: 'sessionId',
+      label: 'Phiên',
+      render: (value?: string | null) => value || '—'
+    },
+    {
+      key: 'errorMessage',
+      label: 'Lỗi',
+      render: (value?: string | null) => value || '—'
+    },
+    {
+      key: 'checkedAt',
+      label: 'Ngày kiểm tra',
+      sortable: true,
+      render: (value?: string | null) => (
+        value ? (
+          <div>
+            <div>{new Date(value).toLocaleDateString('vi-VN')}</div>
+            <div className="text-xs text-muted-foreground">
+              {new Date(value).toLocaleTimeString('vi-VN')}
+            </div>
+          </div>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )
+      )
+    },
+    {
+      key: 'createdAt',
+      label: 'Ngày tạo',
+      sortable: true,
+      render: (value: string) => new Date(value).toLocaleString('vi-VN')
     },
     {
       key: 'userId',
@@ -192,30 +296,6 @@ export default function CardManagement() {
           <div className="text-xs text-muted-foreground">{value.email}</div>
         </div>
       )
-    },
-    {
-      key: 'checkedAt',
-      label: 'Ngày kiểm tra',
-      sortable: true,
-      render: (value) => (
-        <div>
-          <div>{new Date(value).toLocaleDateString('vi-VN')}</div>
-          <div className="text-xs text-muted-foreground">
-            {new Date(value).toLocaleTimeString('vi-VN')}
-          </div>
-        </div>
-      )
-    },
-    {
-      key: 'country',
-      label: 'Quốc gia',
-      align: 'center',
-      render: (value) => value || 'N/A'
-    },
-    {
-      key: 'bank',
-      label: 'Ngân hàng',
-      render: (value) => value || 'N/A'
     }
   ]
 
@@ -229,10 +309,16 @@ export default function CardManagement() {
           <h1 className="text-2xl font-bold">List Bin Card</h1>
           <p className="text-muted-foreground">Danh sách tất cả thẻ đã được kiểm tra</p>
         </div>
-        <Button onClick={handleExportCards} disabled={cards.length === 0}>
-          <Download className="h-4 w-4 mr-2" />
-          Xuất file CSV
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleExportCards} disabled={cards.length === 0}>
+            <Download className="h-4 w-4 mr-2" />
+            Xuất file CSV
+          </Button>
+          <Button variant="secondary" onClick={handleExportTxt} disabled={cards.length === 0}>
+            <Download className="h-4 w-4 mr-2" />
+            Xuất file TXT
+          </Button>
+        </div>
       </div>
 
       {/* Statistics */}

@@ -38,16 +38,25 @@ const getDashboard = async (req, res, next) => {
       }
     ]);
 
-    // Get card statistics
-    const cardStats = await Card.aggregate([
+    // Get card statistics (map status -> tiles expected by dashboard)
+    const cardStatsRaw = await Card.aggregate([
       { $match: dateFilter },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
+      { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
+
+    const formattedCardStats = { total: 0, live: 0, dead: 0, pending: 0, error: 0 };
+    cardStatsRaw.forEach(stat => {
+      formattedCardStats.total += stat.count;
+      const s = String(stat._id);
+      if (s === 'live') formattedCardStats.live += stat.count;
+      else if (s === 'die') formattedCardStats.dead += stat.count; // map 'die' -> 'dead'
+      else if (s === 'unknown' || s === 'checking') formattedCardStats.pending += stat.count;
+    });
+    // Error = có errorMessage khác rỗng trong khoảng thời gian chọn
+    try {
+      const errFilter = { ...dateFilter, errorMessage: { $exists: true, $ne: '' } };
+      formattedCardStats.error = await Card.countDocuments(errFilter);
+    } catch (_) {}
 
     // Get payment statistics
     const paymentStats = await PaymentRequest.aggregate([
@@ -103,18 +112,7 @@ const getDashboard = async (req, res, next) => {
       formattedUserStats.totalBalance += stat.totalBalance;
     });
 
-    const formattedCardStats = {
-      total: 0,
-      live: 0,
-      dead: 0,
-      pending: 0,
-      error: 0
-    };
-
-    cardStats.forEach(stat => {
-      formattedCardStats[stat._id] = stat.count;
-      formattedCardStats.total += stat.count;
-    });
+    // formattedCardStats 11 11 1112 111114: 11 111113 11
 
     const formattedPaymentStats = {
       total: 0,
@@ -201,23 +199,42 @@ const getUsers = async (req, res, next) => {
     // Get total count
     const total = await User.countDocuments(query);
 
-    // Format response
-    const formattedUsers = users.map(user => ({
-      _id: user._id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      status: user.status,
-      balance: user.balance,
-      totalCardsSubmitted: user.totalCardsSubmitted || 0,
-      totalLiveCards: user.totalLiveCards || 0,
-      totalDieCards: user.totalDieCards || 0,
-      successRate: (user.totalCardsSubmitted && user.totalCardsSubmitted > 0)
-        ? ((user.totalLiveCards / user.totalCardsSubmitted) * 100).toFixed(2)
-        : '0',
-      lastLogin: user.lastLogin,
-      createdAt: user.createdAt
-    }));
+    // Aggregate real-time stats from Card by originUserId for these users
+    const userIds = users.map(u => u._id);
+    const cardAgg = await Card.aggregate([
+      { $match: { originUserId: { $in: userIds } } },
+      { $group: { _id: { uid: '$originUserId', status: '$status' }, cnt: { $sum: 1 } } }
+    ]);
+    const statMap = new Map();
+    for (const row of cardAgg) {
+      const uid = String(row._id.uid);
+      const statusKey = row._id.status;
+      if (!statMap.has(uid)) statMap.set(uid, { submitted: 0, live: 0, die: 0 });
+      const cur = statMap.get(uid);
+      cur.submitted += row.cnt;
+      if (statusKey === 'live') cur.live += row.cnt;
+      if (statusKey === 'die') cur.die += row.cnt;
+    }
+
+    // Format response (prefer realtime agg over stored counters)
+    const formattedUsers = users.map(user => {
+      const s = statMap.get(String(user._id)) || { submitted: 0, live: 0, die: 0 };
+      const successRate = s.submitted > 0 ? ((s.live / s.submitted) * 100).toFixed(2) : '0';
+      return {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        balance: user.balance,
+        totalCardsSubmitted: s.submitted,
+        totalLiveCards: s.live,
+        totalDieCards: s.die,
+        successRate,
+        lastLogin: user.lastLogin,
+        createdAt: user.createdAt
+      };
+    });
 
     res.json({
       success: true,
@@ -464,6 +481,7 @@ const getCards = async (req, res, next) => {
     const [cards, total] = await Promise.all([
       Card.find(filter)
         .populate('userId', 'username email')
+        .populate('originUserId', 'username email')
         .sort(sort)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -684,13 +702,13 @@ module.exports = {
       const { id } = req.params;
       const {
         page = 1,
-        limit = 10,
+        limit = 1000,
         status = '',
         search = ''
       } = req.query;
 
-      // Build filter
-      const filter = { userId: id };
+      // Build filter (thẻ do user này gửi lên): lọc theo originUserId
+      const filter = { originUserId: id };
 
       if (status) {
         filter.status = status;
@@ -786,22 +804,38 @@ module.exports = {
       await SiteConfig.initializeDefaults();
       const seo = await SiteConfig.getByCategory('seo', false);
       const general = await SiteConfig.getByCategory('general', false);
+      const social = await SiteConfig.getByCategory('social', false);
 
       const siteConfig = {
+        // Branding
         logo: general?.site_logo || '/logo.png',
         favicon: general?.site_favicon || '/favicon.ico',
         thumbnail: general?.site_thumbnail || '/logo.png',
+        // Base SEO
         siteName: seo?.site_title || 'Credit Card Checker',
         siteDescription: seo?.site_description || 'Professional Credit Card Checking Service',
         siteKeywords: seo?.site_keywords || 'credit card, checker, validation, security',
         seoTitle: seo?.site_title || 'Credit Card Checker',
         seoDescription: seo?.site_description || 'Professional Credit Card Checking Service',
-        ogTitle: seo?.site_title || 'Credit Card Checker',
-        ogDescription: seo?.site_description || 'Professional Credit Card Checking Service',
-        ogImage: general?.site_thumbnail || '/logo.png',
-        twitterTitle: seo?.site_title || 'Credit Card Checker',
-        twitterDescription: seo?.site_description || 'Professional Credit Card Checking Service',
-        twitterImage: general?.site_thumbnail || '/logo.png',
+        canonicalUrl: seo?.canonical_url || '',
+        // Robots
+        robotsIndex: seo?.robots_index !== false,
+        robotsFollow: seo?.robots_follow !== false,
+        robotsAdvanced: seo?.robots_advanced || '',
+        // Open Graph
+        ogTitle: seo?.og_title || seo?.site_title || 'Credit Card Checker',
+        ogDescription: seo?.og_description || seo?.site_description || 'Professional Credit Card Checking Service',
+        ogType: seo?.og_type || 'website',
+        ogSiteName: seo?.og_site_name || seo?.site_title || 'Credit Card Checker',
+        ogImage: seo?.og_image || general?.site_thumbnail || '/logo.png',
+        // Twitter
+        twitterCard: seo?.twitter_card || 'summary_large_image',
+        twitterSite: seo?.twitter_site || '',
+        twitterCreator: seo?.twitter_creator || '',
+        twitterImage: seo?.twitter_image || general?.site_thumbnail || '/logo.png',
+        // Social links
+        socialLinks: social?.social_links || { facebook: '', twitter: '', linkedin: '', youtube: '' },
+        // Contact
         contactEmail: general?.contact_email || 'support@example.com'
       };
 
@@ -822,12 +856,34 @@ module.exports = {
     try {
       const payload = req.body || {};
       const updates = {};
+      // Branding
       if (payload.logo !== undefined) updates['site_logo'] = payload.logo;
       if (payload.favicon !== undefined) updates['site_favicon'] = payload.favicon;
       if (payload.thumbnail !== undefined) updates['site_thumbnail'] = payload.thumbnail;
+      // Base SEO
       if (payload.siteName !== undefined) updates['site_title'] = payload.siteName;
       if (payload.siteDescription !== undefined) updates['site_description'] = payload.siteDescription;
       if (payload.siteKeywords !== undefined) updates['site_keywords'] = payload.siteKeywords;
+      if (payload.seoTitle !== undefined) updates['site_title'] = payload.seoTitle; // alias
+      if (payload.seoDescription !== undefined) updates['site_description'] = payload.seoDescription; // alias
+      if (payload.canonicalUrl !== undefined) updates['canonical_url'] = payload.canonicalUrl;
+      // Robots
+      if (payload.robotsIndex !== undefined) updates['robots_index'] = !!payload.robotsIndex;
+      if (payload.robotsFollow !== undefined) updates['robots_follow'] = !!payload.robotsFollow;
+      if (payload.robotsAdvanced !== undefined) updates['robots_advanced'] = payload.robotsAdvanced;
+      // Open Graph
+      if (payload.ogTitle !== undefined) updates['og_title'] = payload.ogTitle;
+      if (payload.ogDescription !== undefined) updates['og_description'] = payload.ogDescription;
+      if (payload.ogType !== undefined) updates['og_type'] = payload.ogType;
+      if (payload.ogSiteName !== undefined) updates['og_site_name'] = payload.ogSiteName;
+      if (payload.ogImage !== undefined) updates['og_image'] = payload.ogImage;
+      // Twitter
+      if (payload.twitterCard !== undefined) updates['twitter_card'] = payload.twitterCard;
+      if (payload.twitterSite !== undefined) updates['twitter_site'] = payload.twitterSite;
+      if (payload.twitterCreator !== undefined) updates['twitter_creator'] = payload.twitterCreator;
+      if (payload.twitterImage !== undefined) updates['twitter_image'] = payload.twitterImage;
+      // Social
+      if (payload.socialLinks !== undefined) updates['social_links'] = payload.socialLinks;
 
       // cập nhật hàng loạt theo key-value
       await SiteConfig.initializeDefaults();
@@ -995,6 +1051,7 @@ module.exports = {
       const creditPackages = await SiteConfig.getByKey('payment_credit_packages');
       const minDeposit = await SiteConfig.getByKey('min_deposit_amount');
       const maxDeposit = await SiteConfig.getByKey('max_deposit_amount');
+      const cryptoUsdPrices = await SiteConfig.getByKey('crypto_usd_prices');
 
       res.json({
         success: true,
@@ -1005,7 +1062,8 @@ module.exports = {
             showCryptoPayment: showCrypto !== false,
             creditPackages: creditPackages || [],
             minDepositAmount: Number(minDeposit || 10),
-            maxDepositAmount: Number(maxDeposit || 10000)
+            maxDepositAmount: Number(maxDeposit || 10000),
+            cryptoUsdPrices: cryptoUsdPrices || {}
           }
         }
       });
@@ -1024,6 +1082,7 @@ module.exports = {
       if (payload.creditPackages !== undefined) updates['payment_credit_packages'] = payload.creditPackages;
       if (payload.minDepositAmount !== undefined) updates['min_deposit_amount'] = Number(payload.minDepositAmount);
       if (payload.maxDepositAmount !== undefined) updates['max_deposit_amount'] = Number(payload.maxDepositAmount);
+      if (payload.cryptoUsdPrices !== undefined) updates['crypto_usd_prices'] = payload.cryptoUsdPrices;
       await SiteConfig.bulkUpdate(updates, req.user.id);
       res.json({ success: true, message: 'Payment configuration updated successfully' });
     } catch (error) {

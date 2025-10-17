@@ -164,33 +164,58 @@ async function handleFetchCards(req, res, p) {
 async function handleUpdateStatus(req, res, p) {
   try {
     if (!p.Id || !mongoose.Types.ObjectId.isValid(String(p.Id))) {
-      return res.json({ 
-        ErrorId: 0, 
-        Title: 'error', 
-        Message: 'Invalid Id', 
-        Content: '' 
+      return res.json({
+        ErrorId: 0,
+        Title: 'error',
+        Message: 'Invalid Id',
+        Content: ''
       });
     }
 
     const newStatus = mapStatusToCard(p.Status);
+
+    // L meta t th trong body/query
+    const body = { ...req.query, ...req.body };
+    const rawBin = String(body.BIN || body.Bin || body.bin || '').trim();
+    const rawBrand = String(body.Brand || body.brand || '').trim().toLowerCase();
+    const rawCountry = String(body.Country || body.country || '').trim().toUpperCase();
+    const rawBank = String(body.Bank || body.bank || '').trim();
+    const rawLevel = String(body.Level || body.level || '').trim().toLowerCase();
+    const rawType = body.Type !== undefined ? Number(body.Type) : (body.type !== undefined ? Number(body.type) : undefined);
+
     const update = {
       status: newStatus,
       errorMessage: p.Msg || '',
       lastCheckAt: new Date()
     };
 
+    // checkedAt khi tht kbt thac
+    if (['live','die','unknown'].includes(String(newStatus))) {
+      update.checkedAt = new Date();
+    }
+
     // Save check source
     if (p.From !== undefined) {
       update.checkSource = ['unknown','google','wm','zenno','777'][Number(p.From)] || 'unknown';
     }
 
+    // Gn meta nbu he3p lc
+    if (/^\d{6}$/.test(rawBin)) update.bin = rawBin;
+    const allowedBrands = new Set(['visa','mastercard','amex','discover','jcb','diners','unknown']);
+    if (rawBrand && allowedBrands.has(rawBrand)) update.brand = rawBrand;
+    if (/^[A-Z]{2}$/.test(rawCountry)) update.country = rawCountry;
+    if (rawBank) update.bank = rawBank;
+    const allowedLevels = new Set(['classic','gold','platinum','black','unknown']);
+    if (rawLevel && allowedLevels.has(rawLevel)) update.level = rawLevel;
+    if (rawType === 1 || rawType === 2) update.typeCheck = rawType;
+
     const card = await Card.findByIdAndUpdate(p.Id, { $set: update }, { new: true });
     if (!card) {
-      return res.json({ 
-        ErrorId: 0, 
-        Title: 'error', 
-        Message: 'Card not found', 
-        Content: '' 
+      return res.json({
+        ErrorId: 0,
+        Title: 'error',
+        Message: 'Card not found',
+        Content: ''
       });
     }
 
@@ -222,8 +247,8 @@ async function handleUpdateStatus(req, res, p) {
         const session = await CheckSession.findOne({ sessionId: card.sessionId });
         if (session) {
           const inc = { processed: 0, live: 0, die: 0, unknown: 0 };
-          if (newStatus === 'live') inc.live = 1; 
-          else if (newStatus === 'die') inc.die = 1; 
+          if (newStatus === 'live') inc.live = 1;
+          else if (newStatus === 'die') inc.die = 1;
           else if (newStatus === 'unknown') inc.unknown = 1;
           inc.processed = 1;
           await CheckSession.updateOne({ _id: session._id }, { $inc: inc });
@@ -234,19 +259,19 @@ async function handleUpdateStatus(req, res, p) {
     }
 
     // Return ErrorId: 1 = Update Success, 0 = Error (according to user spec)
-    return res.json({ 
-      ErrorId: 1, 
-      Title: 'success', 
-      Message: '', 
-      Content: '' 
+    return res.json({
+      ErrorId: 1,
+      Title: 'success',
+      Message: '',
+      Content: ''
     });
   } catch (err) {
     logger.error('Update status error:', err);
-    return res.json({ 
-      ErrorId: 0, 
-      Title: 'error', 
-      Message: 'Failed to update card status', 
-      Content: '' 
+    return res.json({
+      ErrorId: 0,
+      Title: 'error',
+      Message: 'Failed to update card status',
+      Content: ''
     });
   }
 }

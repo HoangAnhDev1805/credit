@@ -2,37 +2,33 @@ const SiteConfig = require('../models/SiteConfig');
 const PricingConfig = require('../models/PricingConfig');
 const logger = require('../config/logger');
 
-// Public config controller
+// Public config controller (luôn trả về default khi DB lỗi thay vì 500)
 exports.getPublicConfigs = async (req, res) => {
+  let configs = {};
   try {
-    const configs = await SiteConfig.getPublicConfigs();
+    // Cố gắng lấy từ DB (public)
+    configs = await SiteConfig.getPublicConfigs();
+  } catch (err) {
+    // Không chặn luồng: ghi log và dùng defaults an toàn
+    logger.warn('DB lỗi khi getPublicConfigs, trả về defaults:', err?.message || err);
+    configs = {};
+  }
 
-    // Add credit packages from payment config if available
-    try {
-      const paymentCreditPerUsd = await SiteConfig.findOne({ key: 'payment_credit_per_usd' });
-      const paymentCreditPackages = await SiteConfig.findOne({ key: 'payment_credit_packages' });
+  // Bổ sung payment configs public: credit packages, credit per USD, và crypto USD prices
+  try {
+    const creditPerUsd = await SiteConfig.getByKey('payment_credit_per_usd');
+    const creditPackages = await SiteConfig.getByKey('payment_credit_packages');
+    const cryptoUsdPrices = await SiteConfig.getByKey('crypto_usd_prices');
 
-      if (paymentCreditPerUsd) {
-        configs.payment = configs.payment || {};
-        configs.payment.payment_credit_per_usd = parseFloat(paymentCreditPerUsd.value) || 10;
-      }
+    configs.payment = configs.payment || {};
+    configs.payment.payment_credit_per_usd = Number(creditPerUsd || 10);
+    configs.payment.payment_credit_packages = Array.isArray(creditPackages) ? creditPackages : [];
+    if (cryptoUsdPrices && typeof cryptoUsdPrices === 'object') {
+      configs.payment.crypto_usd_prices = cryptoUsdPrices;
+    }
 
-      if (paymentCreditPackages) {
-        configs.payment = configs.payment || {};
-        configs.payment.payment_credit_packages = JSON.parse(paymentCreditPackages.value || '[]');
-      } else {
-        // Fallback default packages
-        configs.payment = configs.payment || {};
-        configs.payment.payment_credit_packages = [
-          { id: 1, credits: 100, price: 10, bonus: 0, popular: false, savings: '' },
-          { id: 2, credits: 500, price: 45, bonus: 50, popular: true, savings: '10% off' },
-          { id: 3, credits: 1000, price: 80, bonus: 200, popular: false, savings: '20% off' },
-          { id: 4, credits: 5000, price: 350, bonus: 1000, popular: false, savings: '30% off' }
-        ];
-      }
-    } catch (e) {
-      // Ignore errors, use defaults
-      configs.payment = configs.payment || {};
+    // Fallback default packages nếu rỗng
+    if (!configs.payment.payment_credit_packages || configs.payment.payment_credit_packages.length === 0) {
       configs.payment.payment_credit_packages = [
         { id: 1, credits: 100, price: 10, bonus: 0, popular: false, savings: '' },
         { id: 2, credits: 500, price: 45, bonus: 50, popular: true, savings: '10% off' },
@@ -40,12 +36,19 @@ exports.getPublicConfigs = async (req, res) => {
         { id: 4, credits: 5000, price: 350, bonus: 1000, popular: false, savings: '30% off' }
       ];
     }
-
-    res.json({ success: true, data: configs });
-  } catch (error) {
-    logger.error('Get public configs error:', error);
-    res.status(500).json({ success: false, message: 'Failed to get public configs', error: error.message });
+  } catch (e) {
+    // Ignore errors, dùng defaults an toàn
+    configs.payment = configs.payment || {};
+    configs.payment.payment_credit_per_usd = configs.payment.payment_credit_per_usd || 10;
+    configs.payment.payment_credit_packages = configs.payment.payment_credit_packages || [
+      { id: 1, credits: 100, price: 10, bonus: 0, popular: false, savings: '' },
+      { id: 2, credits: 500, price: 45, bonus: 50, popular: true, savings: '10% off' },
+      { id: 3, credits: 1000, price: 80, bonus: 200, popular: false, savings: '20% off' },
+      { id: 4, credits: 5000, price: 350, bonus: 1000, popular: false, savings: '30% off' }
+    ];
   }
+
+  return res.json({ success: true, data: configs });
 };
 
 // Public: get active pricing tiers (auto seed defaults if empty)
@@ -150,7 +153,20 @@ exports.getCreditPackages = async (req, res) => {
       }
     });
   } catch (error) {
-    logger.error('Get credit packages error:', error);
-    res.status(500).json({ success: false, message: 'Lỗi hệ thống', error: error.message });
+    // Trả về defaults an toàn thay vì 500 để frontend vẫn hoạt động
+    logger.warn('Get credit packages error, fallback defaults:', error?.message || error);
+    const defaultPackages = [
+      { id: 1, name: 'Starter', credits: 100, price: 10, popular: false },
+      { id: 2, name: 'Basic', credits: 500, price: 45, popular: true },
+      { id: 3, name: 'Pro', credits: 1000, price: 80, popular: false },
+      { id: 4, name: 'Enterprise', credits: 5000, price: 350, popular: false }
+    ];
+    return res.json({
+      success: true,
+      data: {
+        packages: defaultPackages,
+        creditPerUsd: 10
+      }
+    });
   }
 };

@@ -44,6 +44,7 @@ export interface FormField {
   className?: string
   accept?: string // for file inputs
   multiple?: boolean // for file inputs
+  uploadVariant?: 'default' | 'og' // for image uploads
 }
 
 export interface FormData {
@@ -341,6 +342,7 @@ export function SharedForm({
             label={field.label}
             description={field.placeholder}
             className={error ? 'border-destructive' : ''}
+            variant={field.uploadVariant || 'default'}
           />
         )}
 

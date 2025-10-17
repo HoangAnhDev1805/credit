@@ -94,6 +94,10 @@ export default function PaymentManagement() {
   const { success, error: showError } = useToast()
 
   useEffect(() => {
+    try {
+      const t = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : ''
+      if (t) apiClient.setToken(t)
+    } catch {}
     fetchPaymentMethods()
   }, [])
 
@@ -350,6 +354,11 @@ export default function PaymentManagement() {
                   action={{
                     label: 'Quản lý',
                     onClick: () => handleEditMethod(method)
+                  }}
+                  secondaryAction={{
+                    label: 'Xóa',
+                    variant: 'destructive',
+                    onClick: () => handleDeleteMethod(method)
                   }}
                 />
               ))}

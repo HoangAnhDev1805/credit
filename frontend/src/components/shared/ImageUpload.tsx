@@ -16,6 +16,7 @@ interface ImageUploadProps {
   maxSize?: number // in MB
   className?: string
   preview?: boolean
+  variant?: 'default' | 'og'
 }
 
 export function ImageUpload({
@@ -27,7 +28,8 @@ export function ImageUpload({
   accept = 'image/*',
   maxSize = 5,
   className = '',
-  preview = true
+  preview = true,
+  variant = 'default'
 }: ImageUploadProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -63,10 +65,12 @@ export function ImageUpload({
     const formData = new FormData()
     formData.append('image', file)
 
-    const response = await fetch(`http://localhost:5001/api/upload/image`, {
+    const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '')
+    const endpoint = variant === 'og' ? '/api/upload/image/og' : '/api/upload/image'
+    const response = await fetch(`${base}${endpoint}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
       },
       body: formData
     })
@@ -155,7 +159,7 @@ export function ImageUpload({
           <CardContent className="p-4">
             <div className="relative">
               <img
-                src={value.startsWith('/uploads/') ? `http://localhost:5001${value}` : value}
+                src={(value.startsWith('/uploads/') ? `${(process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/,'')}${value}` : value)}
                 alt="Preview"
                 className="w-full h-48 object-cover rounded-lg"
               />
