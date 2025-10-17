@@ -96,7 +96,11 @@ const corsOptions = {
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
-      process.env.CORS_ORIGIN || 'http://localhost:3000',
+      process.env.CORS_ORIGIN || 'https://checkcc.live',
+      'https://checkcc.live',
+      'https://www.checkcc.live',
+      'http://checkcc.live',
+      'http://www.checkcc.live',
       'http://localhost:3000',
       'http://localhost:3001',
       'https://localhost:3000',

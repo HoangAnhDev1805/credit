@@ -30,6 +30,7 @@ services:
       JWT_REFRESH_SECRET: your-super-secret-refresh-key-change-in-production
       EXTERNAL_API_TOKEN: abc
       EXTERNAL_API_BASE_URL: http://160.25.168.79/api
+      CORS_ORIGIN: https://checkcc.live
 
     depends_on:
       - mongodb
@@ -51,7 +52,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: https://checkcc.live/api
+      NEXT_PUBLIC_API_URL: https://checkcc.live
       NEXT_PUBLIC_APP_URL: https://checkcc.live
 
     depends_on:
