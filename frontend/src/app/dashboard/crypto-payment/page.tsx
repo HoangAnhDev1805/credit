@@ -207,6 +207,14 @@ export default function CryptoPaymentPage() {
     return selectedPackage?.credits + (selectedPackage?.bonus || 0);
   };
 
+
+  const getCoinShortName = (coinValue: string) => {
+    if (coinValue.includes('/')) {
+      return coinValue.split('/')[1];
+    }
+    return coinValue;
+  };
+
   const handleCreatePayment = async () => {
     const amount = getAmount();
 
@@ -599,14 +607,15 @@ export default function CryptoPaymentPage() {
                   </span>
                 </div>
                 {(() => {
-                  const price = cryptoUsdPrices?.[selectedCoin] || 0;
+                  const shortName = getCoinShortName(selectedCoin);
+                  const price = cryptoUsdPrices?.[shortName] || 0;
                   const amt = getAmount();
                   if (price > 0 && amt > 0) {
                     const coinAmt = amt / price;
                     return (
                       <div className="flex justify-between text-sm text-blue-700 dark:text-blue-300">
-                        <span>Số crypto cần thanh toán (ước tính theo tỷ giá)</span>
-                        <span className="font-medium">{coinAmt.toFixed(8)} {selectedCoin.toUpperCase()}</span>
+                        <span>{t('cryptoPayment.estimatedCryptoAmount', { coin: shortName.toUpperCase() })}</span>
+                        <span className="font-medium">{coinAmt.toFixed(8)} {shortName.toUpperCase()}</span>
                       </div>
                     )
                   }

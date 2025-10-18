@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { useAuthStore } from '@/lib/auth'
 import { cn } from '@/lib/utils'
+import { apiClient } from '@/lib/api'
 import {
   LayoutDashboard,
   Users,
@@ -67,17 +68,31 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const { user, logout } = useAuthStore()
   const [showNotif, setShowNotif] = useState(false)
   const [logoUrl, setLogoUrl] = useState('/logo.svg')
+  const [siteName, setSiteName] = useState('Admin Panel')
 
-  // Fetch site config for logo
+  // Fetch site config for logo and site name
   useEffect(() => {
     const fetchSiteConfig = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/config/public`)
-        if (response.ok) {
-          const data = await response.json()
-          if (data.success && data.data.general?.site_logo) {
-            setLogoUrl(data.data.general.site_logo)
+        const response = await apiClient.getPublicConfig()
+        const data = response.data || {}
+        const general = data.general || {}
+        const seo = data.seo || {}
+
+        const toAbs = (url?: string) => {
+          if (!url) return '/logo.svg'
+          if (url.startsWith('/uploads')) {
+            const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
+            return `${base}${url}`
           }
+          return url
+        }
+
+        if (general.site_logo) {
+          setLogoUrl(toAbs(general.site_logo))
+        }
+        if (seo.site_title) {
+          setSiteName(seo.site_title)
         }
       } catch (error) {
         console.error('Failed to fetch site config:', error)
@@ -110,8 +125,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           {/* Logo */}
           <div className="flex items-center justify-between h-16 px-6 border-b">
             <div className="flex items-center space-x-2">
-              <img src={logoUrl} alt="Logo" className="h-8 w-auto" onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png' }} />
-              <span className="font-semibold text-lg">Admin Panel</span>
+              <img src={logoUrl} alt="Logo" className="h-8 w-auto" onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.svg' }} />
+              <span className="font-semibold text-lg">{siteName}</span>
             </div>
             <Button
               variant="ghost"

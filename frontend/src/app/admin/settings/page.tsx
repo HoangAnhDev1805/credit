@@ -298,20 +298,10 @@ export default function AdminSettings() {
   const pricingConfigFields: FormField[] = [
     {
       name: 'pricePerCard',
-      label: 'Giá mỗi thẻ (VND)',
+      label: 'Giá mỗi thẻ (Credit)',
       type: 'number',
       required: true,
-      placeholder: '1000'
-    },
-    {
-      name: 'currency',
-      label: 'Đơn vị tiền tệ',
-      type: 'select',
-      options: [
-        { value: 'VND', label: 'VND' },
-        { value: 'USD', label: 'USD' }
-      ],
-      required: true
+      placeholder: '1'
     }
   ]
 
@@ -670,7 +660,7 @@ export default function AdminSettings() {
                         <span className="text-sm">thẻ</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm">Tổng giá</span>
+                        <span className="text-sm">Tổng Credit</span>
                         <input
                           type="number"
                           className="w-40 border rounded px-2 py-1"
@@ -680,7 +670,7 @@ export default function AdminSettings() {
                             setPricingTiers(prev => prev.map((t, i) => i === idx ? { ...t, total: v } : t))
                           }}
                         />
-                        <span className="text-sm">$</span>
+                        <span className="text-sm">Credits</span>
                       </div>
                     </div>
                   ))}

@@ -83,7 +83,7 @@ exports.startOrStop = async (req, res) => {
     const user = await User.findById(userId);
     const estimated = Math.round(parsed.length * pricePerCard * 100) / 100;
     if ((user.balance || 0) < estimated) {
-      return res.status(400).json({ success: false, message: `Số dư không đủ. Cần $${estimated.toFixed(2)}, hiện có $${(user.balance||0).toFixed(2)}` });
+      return res.status(400).json({ success: false, message: `Số dư không đủ Credits. Cần ${estimated.toFixed(0)} credits, hiện có ${(user.balance||0).toFixed(0)} credits` });
     }
 
     // Lấy userId stock zenno
@@ -168,6 +168,48 @@ exports.getStatus = async (req, res) => {
       session.status = 'completed';
       session.endedAt = new Date();
     }
+
+    // Handle billing when session is completed and not yet billed
+    if (session.status === 'completed' && !session.billedAt) {
+      // Bill only finished cards (live + die) that haven't been billed
+      const cardsToBill = await Card.find({ sessionId, status: { $in: ['live', 'die'] }, billed: { $ne: true } });
+      const finishedCount = cardsToBill.length;
+
+      if (finishedCount > 0) {
+        // Determine pricing tier based on number of successfully checked cards
+        const tier = await PricingConfig.findApplicablePricing(finishedCount, 'user');
+        const pricePerCardToUse = Number(tier?.effectivePrice ?? tier?.pricePerCard ?? session.pricePerCard ?? 0);
+
+        const totalBill = finishedCount * pricePerCardToUse;
+
+        if (totalBill > 0) {
+          await Transaction.createTransaction({
+            userId: session.userId,
+            type: 'card_check',
+            amount: -totalBill,
+            description: `Charge for card check session ${sessionId}`,
+            relatedId: session._id,
+            relatedModel: 'CheckSession',
+            metadata: {
+              sessionId,
+              cardCount: finishedCount,
+              pricePerCard: pricePerCardToUse
+            }
+          });
+
+          // Mark cards as billed with the applied per-card price
+          const cardIdsToUpdate = cardsToBill.map(c => c._id);
+          await Card.updateMany(
+            { _id: { $in: cardIdsToUpdate } },
+            { $set: { billed: true, billAmount: pricePerCardToUse } }
+          );
+
+          session.billedAmount = totalBill;
+          session.billedAt = new Date();
+        }
+      }
+    }
+
     await session.save();
 
     // Lấy 50 kết quả mới nhất để hiển thị realtime

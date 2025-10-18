@@ -479,11 +479,11 @@ export default function CheckerPage() {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">{t('checker.info.pricePerCard')}</span>
-                <span className="font-semibold">${pricePerCard}</span>
+                <span className="font-semibold">{pricePerCard} Credits</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">{t('checker.info.estimatedCost')}</span>
-                <span className="font-semibold text-primary">${estimatedCost}</span>
+                <span className="font-semibold text-primary">{estimatedCost} Credits</span>
               </div>
             </CardContent>
           </UICard>

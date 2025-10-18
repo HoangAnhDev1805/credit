@@ -61,7 +61,7 @@ export default {
     loginError: 'Đăng nhập thất bại',
     invalidCredentials: 'Email hoặc mật khẩu không đúng',
     tooManyAttempts: 'Quá nhiều lần thử đăng nhập, vui lòng thử lại sau',
-    
+
     register: 'Đăng ký',
     registerTitle: 'Tạo tài khoản',
     registerSubtitle: 'Tạo tài khoản mới để bắt đầu sử dụng',
@@ -71,7 +71,7 @@ export default {
     registerButton: 'Tạo tài khoản',
     haveAccount: 'Đã có tài khoản?',
     loginNow: 'Đăng nhập ngay',
-    
+
     // Validation messages
     validation: {
       emailRequired: 'Email là bắt buộc',
@@ -331,6 +331,59 @@ export default {
       avatarUploadError: 'Lỗi khi tải lên ảnh đại diện',
       fileTooLarge: 'File quá lớn. Vui lòng chọn file nhỏ hơn 5MB',
       invalidFileType: 'Định dạng file không hợp lệ. Chỉ chấp nhận JPG, PNG, GIF'
+    }
+  }
+
+
+  // Crypto Payment page
+  cryptoPayment: {
+    title: 'Thanh toán Crypto',
+    subtitle: 'Nạp tiền vào tài khoản của bạn bằng tiền điện tử.',
+    payTitle: 'Hoàn tất thanh toán',
+    payDescription: 'Vui lòng gửi số tiền chính xác đến địa chỉ bên dưới để nhận {credits} credits của bạn.',
+    paymentInfo: 'Thông tin thanh toán',
+    sendTo: 'Gửi {label} đến địa chỉ bên dưới',
+    status: 'Trạng thái',
+    statusPaid: 'Đã thanh toán',
+    statusPending: 'Đang chờ',
+    timeLeft: 'Thời gian còn lại',
+    receiveAddress: 'Địa chỉ nhận {coin}',
+    amountUSD: 'Số tiền (USD)',
+    creditsReceive: 'Credits sẽ nhận',
+    minimumAmount: 'Số tiền tối thiểu:',
+    newPayment: 'Tạo thanh toán mới',
+    qrCode: 'Mã QR',
+    qrDesc: 'Quét mã QR bằng ứng dụng ví của bạn.',
+    scanWithWallet: 'Quét bằng ví di động của bạn',
+    orderId: 'Mã đơn hàng:',
+    choosePackage: 'Chọn gói Credit',
+    choosePackageDesc: 'Chọn một trong các gói phổ biến của chúng tôi hoặc nhập số tiền tùy chỉnh.',
+    popular: 'Phổ biến',
+    savings: 'Tiết kiệm {percent}',
+    customAmount: 'Nhập số tiền tùy chỉnh',
+    customAmountPlaceholder: 'Nhập số tiền bằng USD',
+    willReceive: 'Bạn sẽ nhận được ~{credits} credits',
+    chooseCrypto: 'Chọn tiền điện tử',
+    summary: 'Tóm tắt đơn hàng',
+    amount: 'Số tiền',
+    method: 'Phương thức',
+    total: 'Tổng cộng',
+    creating: 'Đang tạo...',
+    createAddress: 'Tạo địa chỉ thanh toán',
+    currentBalance: 'Số dư hiện tại của bạn',
+    balanceNotice: 'Số dư mới của bạn sẽ được cập nhật sau khi thanh toán được xác nhận.',
+    estimatedCryptoAmount: 'Số crypto cần thanh toán (ước tính theo tỷ giá)',
+    toasts: {
+      successTitle: 'Đã nhận thanh toán',
+      successDesc: 'Thanh toán của bạn đã được xác nhận và credits đã được thêm vào tài khoản.',
+      errorTitle: 'Lỗi',
+      minAmount: 'Số tiền nạp tối thiểu là $1.',
+      createdTitle: 'Đã tạo địa chỉ thanh toán',
+      createdDesc: 'Vui lòng gửi tiền vào địa chỉ đã tạo.',
+      createError: 'Không thể tạo địa chỉ thanh toán. Vui lòng thử lại.',
+      copiedTitle: 'Đã sao chép',
+      copiedDesc: 'Địa chỉ đã được sao chép vào bộ nhớ tạm.',
+      copyError: 'Không thể sao chép địa chỉ.'
     }
   }
 };

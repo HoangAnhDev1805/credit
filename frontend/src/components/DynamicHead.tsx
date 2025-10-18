@@ -38,7 +38,15 @@ export default function DynamicHead() {
         const response = await apiClient.get('/config/public')
         const siteData = response.data?.data?.general || {}
         const seoData = response.data?.data?.seo || {}
-        const socialData = response.data?.data?.social || {}
+        const toAbs = (url?: string) => {
+          if (!url) return ''
+          if (typeof window === 'undefined') return url
+          if (url.startsWith('/uploads')) {
+            const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
+            return `${base}${url}`
+          }
+          return url
+        }
 
         setConfig({
           siteName: seoData.site_title || 'Credit Card Checker',
@@ -52,7 +60,7 @@ export default function DynamicHead() {
           robotsAdvanced: seoData.robots_advanced || '',
           ogTitle: seoData.og_title || seoData.site_title || 'Credit Card Checker',
           ogDescription: seoData.og_description || seoData.site_description || 'Professional Credit Card Checking Service',
-          ogImage: siteData.site_thumbnail || '/logo.png',
+          ogImage: toAbs(siteData.site_thumbnail) || '/logo.png',
           ogType: seoData.og_type || 'website',
           ogSiteName: seoData.og_site_name || seoData.site_title || 'Credit Card Checker',
           twitterCard: seoData.twitter_card || 'summary_large_image',
@@ -60,9 +68,9 @@ export default function DynamicHead() {
           twitterCreator: seoData.twitter_creator || '',
           twitterTitle: seoData.site_title || 'Credit Card Checker',
           twitterDescription: seoData.site_description || 'Professional Credit Card Checking Service',
-          twitterImage: siteData.site_thumbnail || '/logo.png',
-          favicon: siteData.site_favicon || '/favicon.ico',
-          thumbnail: siteData.site_thumbnail || '/logo.png'
+          twitterImage: toAbs(siteData.site_thumbnail) || '/logo.png',
+          favicon: toAbs(siteData.site_favicon) || '/favicon.ico',
+          thumbnail: toAbs(siteData.site_thumbnail) || '/logo.png'
         })
       } catch (error) {
         console.error('Failed to fetch site config:', error)

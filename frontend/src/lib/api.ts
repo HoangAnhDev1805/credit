@@ -90,9 +90,22 @@ class ApiClient {
   private requestQueue: Map<string, Promise<any>> = new Map();
 
   constructor() {
-    const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '')
+    // Determine API base URL. Priority:
+    // 1) window.localStorage.API_BASE_OVERRIDE (for quick hot override in local dev)
+    // 2) NEXT_PUBLIC_API_URL env (for Next dev server only)
+    // 3) default to relative '/api' and let Nginx proxy in production
+    let base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '');
+    if (typeof window !== 'undefined') {
+      try {
+        const override = window.localStorage?.getItem('API_BASE_OVERRIDE');
+        if (override && override.trim().length > 0) {
+          base = override.replace(/\/+$/, '');
+        }
+      } catch {}
+    }
+
     this.client = axios.create({
-      baseURL: `${base}/api`,
+      baseURL: base ? `${base}/api` : '/api',
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',

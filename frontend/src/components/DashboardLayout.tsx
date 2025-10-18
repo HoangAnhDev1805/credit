@@ -63,8 +63,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/config/public`)
         if (response.ok) {
           const data = await response.json()
+          const toAbs = (url?: string) => {
+            if (!url) return '/logo.svg'
+            if (url.startsWith('/uploads')) {
+              const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
+              return `${base}${url}`
+            }
+            return url
+          }
           if (data.success && data.data.general?.site_logo) {
-            setLogoUrl(data.data.general.site_logo)
+            setLogoUrl(toAbs(data.data.general.site_logo))
           }
           if (data.success && data.data.payment) {
             setPaymentConfig(data.data.payment)
@@ -180,13 +188,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       `}>
         {/* Header */}
         <div className="h-16 px-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-          <div className="flex items-center">
+          <div className="flex items-center space-x-2">
             <img
               src={logoUrl}
               alt="Logo"
               className="h-8 w-auto"
               onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png' }}
             />
+            <span className="font-semibold">Checker Credit</span>
           </div>
           <Button
             variant="ghost"

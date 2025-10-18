@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
   output: 'standalone',
   images: {
     domains: ['localhost', '127.0.0.1', 'checkcc.live', 'www.checkcc.live'],
@@ -49,12 +46,17 @@ const nextConfig = {
     ];
   },
   async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`,
-      },
-    ];
+    // Only add a rewrite when NEXT_PUBLIC_API_URL is provided (dev).
+    // In production, we call relative '/api' and let Nginx proxy to backend.
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      return [
+        {
+          source: '/api/:path*',
+          destination: `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`,
+        },
+      ];
+    }
+    return [];
   },
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
     // Custom webpack configuration

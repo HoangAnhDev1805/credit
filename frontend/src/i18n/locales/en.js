@@ -61,7 +61,7 @@ export default {
     loginError: 'Login failed',
     invalidCredentials: 'Invalid email or password',
     tooManyAttempts: 'Too many authentication attempts, please try again later',
-    
+
     register: 'Register',
     registerTitle: 'Create Account',
     registerSubtitle: 'Create a new account to get started',
@@ -71,7 +71,7 @@ export default {
     registerButton: 'Create Account',
     haveAccount: 'Already have an account?',
     loginNow: 'Login now',
-    
+
     // Validation messages
     validation: {
       emailRequired: 'Email is required',
@@ -331,6 +331,59 @@ export default {
       avatarUploadError: 'Error uploading avatar',
       fileTooLarge: 'File too large. Please select a file smaller than 5MB',
       invalidFileType: 'Invalid file type. Only JPG, PNG, GIF are allowed'
+    }
+  }
+
+
+  // Crypto Payment page
+  cryptoPayment: {
+    title: 'Crypto Payment',
+    subtitle: 'Top up your account using cryptocurrency.',
+    payTitle: 'Complete Your Payment',
+    payDescription: 'Please send the exact amount to the address below to receive your {credits} credits.',
+    paymentInfo: 'Payment Information',
+    sendTo: 'Send {label} to the address below',
+    status: 'Status',
+    statusPaid: 'Paid',
+    statusPending: 'Pending',
+    timeLeft: 'Time Left',
+    receiveAddress: '{coin} Receive Address',
+    amountUSD: 'Amount (USD)',
+    creditsReceive: 'Credits to Receive',
+    minimumAmount: 'Minimum amount:',
+    newPayment: 'Create a New Payment',
+    qrCode: 'QR Code',
+    qrDesc: 'Scan the QR code with your wallet app.',
+    scanWithWallet: 'Scan with your mobile wallet',
+    orderId: 'Order ID:',
+    choosePackage: 'Choose a Credit Package',
+    choosePackageDesc: 'Select one of our popular packages or enter a custom amount.',
+    popular: 'Popular',
+    savings: 'Save {percent}',
+    customAmount: 'Enter a custom amount',
+    customAmountPlaceholder: 'Enter amount in USD',
+    willReceive: 'You will receive ~{credits} credits',
+    chooseCrypto: 'Choose Cryptocurrency',
+    summary: 'Order Summary',
+    amount: 'Amount',
+    method: 'Method',
+    total: 'Total',
+    creating: 'Creating...',
+    createAddress: 'Create payment address',
+    currentBalance: 'Your Current Balance',
+    balanceNotice: 'Your new balance will be updated after payment confirmation.',
+    estimatedCryptoAmount: 'Estimated crypto to pay (based on exchange rate)',
+    toasts: {
+      successTitle: 'Payment Received',
+      successDesc: 'Your payment has been confirmed and credits added to your account.',
+      errorTitle: 'Error',
+      minAmount: 'Minimum deposit amount is $1.',
+      createdTitle: 'Payment Address Created',
+      createdDesc: 'Please send the funds to the generated address.',
+      createError: 'Failed to create payment address. Please try again.',
+      copiedTitle: 'Copied',
+      copiedDesc: 'The address has been copied to your clipboard.',
+      copyError: 'Failed to copy address.'
     }
   }
 };

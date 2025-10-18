@@ -32,6 +32,7 @@ const checkSessionSchema = new mongoose.Schema({
   unknown: { type: Number, default: 0, min: 0 },
   pricePerCard: { type: Number, default: 0, min: 0 },
   billedAmount: { type: Number, default: 0, min: 0 },
+  billedAt: { type: Date },
   startedAt: { type: Date, default: Date.now },
   endedAt: { type: Date }
 }, {

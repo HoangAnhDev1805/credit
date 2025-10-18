@@ -291,6 +291,8 @@ const translations = {
       creditsReceive: 'Credits to receive',
       method: 'Method',
       total: 'Total',
+      estimatedCryptoAmount: 'Est. {{coin}} to pay (based on exchange rate)',
+      estimatedCryptoAmount: 'Estimated crypto to pay (based on exchange rate)',
 
       creating: 'Creating...',
       createAddress: 'Create payment address',
@@ -759,6 +761,7 @@ const translations = {
       creditsReceive: 'Credits nhận được',
       method: 'Phương thức',
       total: 'Tổng cộng',
+      estimatedCryptoAmount: 'Số {{coin}} cần thanh toán (ước tính theo tỷ giá)',
 
       creating: 'Đang tạo...',
       createAddress: 'Tạo địa chỉ thanh toán',

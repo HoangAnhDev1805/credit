@@ -203,29 +203,8 @@ exports.updateCardStatus = async (req, res) => {
       return res.json({ ErrorId: 0, Title: 'error', Message: 'Card not found', Content: '' });
     }
 
-    // Billing realtime per finished card (live/die)
+    // Billing moved to checkerController at session completion to avoid per-card double charges
     try {
-      const finished = ['live','die'].includes(String(newStatus));
-      if (finished && card.originUserId && !card.billed) {
-        const amount = Number(card.price || 0);
-        if (amount > 0) {
-          // create transaction (deduct)
-          await Transaction.createTransaction({
-            userId: card.originUserId,
-            type: 'card_check',
-            amount: -amount,
-            description: `Charge for card check (${card.maskedCardNumber || card.cardNumber})`,
-            relatedId: card._id,
-            relatedModel: 'Card',
-            metadata: { pricePerCard: amount, sessionId: card.sessionId, status: newStatus }
-          });
-        }
-        // mark card billed to avoid double charge
-        card.billed = true;
-        card.billAmount = amount;
-        await card.save();
-      }
-
       // Update session counters snapshot (best-effort)
       if (card.sessionId) {
         const session = await CheckSession.findOne({ sessionId: card.sessionId });
@@ -237,7 +216,7 @@ exports.updateCardStatus = async (req, res) => {
         }
       }
     } catch (e) {
-      logger.error('Billing/update session error:', e);
+      logger.error('Session counters update error:', e);
     }
 
     // Quy ước ErrorId: 1 = Update Success, 0 = Error

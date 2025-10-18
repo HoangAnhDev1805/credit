@@ -219,6 +219,7 @@ async function handleUpdateStatus(req, res, p) {
       });
     }
 
+    /* DEPRECATED: Billing is now handled at the end of the session in checkerController.js
     // Billing realtime per finished card (live/die)
     try {
       const finished = ['live','die'].includes(String(newStatus));
@@ -257,6 +258,7 @@ async function handleUpdateStatus(req, res, p) {
     } catch (e) {
       logger.error('Billing/update session error:', e);
     }
+    */
 
     // Return ErrorId: 1 = Update Success, 0 = Error (according to user spec)
     return res.json({

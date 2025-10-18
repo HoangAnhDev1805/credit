@@ -217,7 +217,7 @@ curl -X POST https://api.example.com/api/cards/check \\
         </CardHeader>
         <CardContent>
           <div className="bg-muted p-4 rounded-lg font-mono text-sm">
-            https://api.example.com
+            https://checkcc.live/api
           </div>
         </CardContent>
       </Card>

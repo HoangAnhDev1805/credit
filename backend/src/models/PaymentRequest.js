@@ -163,9 +163,9 @@ paymentRequestSchema.methods.approve = async function(adminId, adminNote = '') {
   const User = mongoose.model('User');
   const user = await User.findById(this.userId);
   if (user) {
-    // Get conversion rate from site config
+    // Get conversion rate from site config (admin-payment settings)
     const SiteConfig = mongoose.model('SiteConfig');
-    const conversionConfig = await SiteConfig.findOne({ key: 'payment_credit_per_usd' });
+    const conversionConfig = await SiteConfig.findOne({ key: 'payment_usd_to_credit_rate' });
     const conversionRate = conversionConfig ? parseFloat(conversionConfig.value) : 10; // Default 10 credits per USD
 
     // Convert USD to credits
