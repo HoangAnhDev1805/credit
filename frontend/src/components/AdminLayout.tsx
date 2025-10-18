@@ -67,7 +67,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const router = useRouter()
   const { user, logout } = useAuthStore()
   const [showNotif, setShowNotif] = useState(false)
-  const [logoUrl, setLogoUrl] = useState('/logo.svg')
+  const [logoUrl, setLogoUrl] = useState('/logo.png')
   const [siteName, setSiteName] = useState('Admin Panel')
 
   // Fetch site config for logo and site name
@@ -75,16 +75,21 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     const fetchSiteConfig = async () => {
       try {
         const response = await apiClient.getPublicConfig()
-        const data = response.data || {}
+        const data = (response as any)?.data?.data || {}
         const general = data.general || {}
         const seo = data.seo || {}
 
         const toAbs = (url?: string) => {
-          if (!url) return '/logo.svg'
+          if (!url) return '/logo.png'
+          // Absolute URL already
+          if (url.startsWith('http://') || url.startsWith('https://')) return url
+          // If backend uploads path, prefix backend base URL
           if (url.startsWith('/uploads')) {
-            const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
-            return `${base}${url}`
+            const base = apiClient.getBaseUrl?.() || ''
+            const backendUrl = base.endsWith('/api') ? base.slice(0, -4) : base
+            return `${backendUrl}${url}`
           }
+          // Otherwise keep as-is (served by Next /public)
           return url
         }
 
@@ -125,7 +130,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           {/* Logo */}
           <div className="flex items-center justify-between h-16 px-6 border-b">
             <div className="flex items-center space-x-2">
-              <img src={logoUrl} alt="Logo" className="h-8 w-auto" onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.svg' }} />
+              <img src={logoUrl} alt="Logo" className="h-12 w-auto" onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png' }} />
               <span className="font-semibold text-lg">{siteName}</span>
             </div>
             <Button

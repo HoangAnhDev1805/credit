@@ -101,18 +101,10 @@ const corsOptions = {
       'https://www.checkcc.live',
       'http://checkcc.live',
       'http://www.checkcc.live',
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://localhost:3000',
-      'https://localhost:3001'
+
     ];
     
-    if (process.env.NODE_ENV === 'development') {
-      // In development, allow any localhost origin
-      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-        return callback(null, true);
-      }
-    }
+
     
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);

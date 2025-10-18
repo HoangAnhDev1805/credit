@@ -219,8 +219,8 @@ function startServerWithFallback(initialPort, maxAttempts = 10) {
       srv = app.listen(port, () => {
         logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${port}`);
         console.log(`🚀 Server running on port ${port}`);
-        console.log(`📚 API Documentation: http://localhost:${port}/api/docs`);
-        console.log(`❤️  Health Check: http://localhost:${port}/api/health`);
+                console.log(`📚 API Documentation: https://checkcc.live/api/docs`);
+        console.log(`❤️  Health Check: https://checkcc.live/api/health`);
         // Graceful shutdown
         gracefulShutdown(srv);
         resolve(srv);

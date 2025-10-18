@@ -90,22 +90,32 @@ class ApiClient {
   private requestQueue: Map<string, Promise<any>> = new Map();
 
   constructor() {
-    // Determine API base URL. Priority:
-    // 1) window.localStorage.API_BASE_OVERRIDE (for quick hot override in local dev)
-    // 2) NEXT_PUBLIC_API_URL env (for Next dev server only)
-    // 3) default to relative '/api' and let Nginx proxy in production
-    let base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '');
+    // Xác định API base URL theo thứ tự ưu tiên:
+    // 1) localStorage.API_BASE_OVERRIDE (dùng khi cần override khẩn)
+    // 2) window.location.origin (tự động dùng đúng domain hiện tại như https://checkcc.live)
+    // 3) NEXT_PUBLIC_API_URL (chỉ khi không có window, ví dụ SSR)
+    // 4) fallback cứng: https://checkcc.live
+    let base = '';
     if (typeof window !== 'undefined') {
       try {
         const override = window.localStorage?.getItem('API_BASE_OVERRIDE');
-        if (override && override.trim().length > 0) {
+        const host = window.location.hostname || '';
+        const isLocal = /^localhost$|^127\.0\.0\.1$/i.test(host);
+        if (override && override.trim().length > 0 && isLocal) {
+          // CHỈ cho phép override khi đang chạy ở localhost
           base = override.replace(/\/+$/, '');
+        } else if (window.location?.origin) {
+          // Trên production, luôn dùng đúng domain hiện tại (ví dụ https://checkcc.live)
+          base = window.location.origin.replace(/\/+$/, '');
         }
       } catch {}
     }
+    if (!base) {
+      base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '') || 'https://checkcc.live';
+    }
 
     this.client = axios.create({
-      baseURL: base ? `${base}/api` : '/api',
+      baseURL: `${base}/api`,
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
@@ -204,6 +214,11 @@ class ApiClient {
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
     }
+  }
+
+
+  public getBaseUrl(): string {
+    return this.client.defaults.baseURL || '';
   }
 
   // Debounced request to prevent duplicate API calls

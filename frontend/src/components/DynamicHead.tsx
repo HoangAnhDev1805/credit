@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import Head from 'next/head'
 import { apiClient } from '@/lib/api'
 
+// Ảnh PNG trong suốt 1x1 để tránh 404 khi chưa cấu hình logo/favicon
+const TRANSPARENT_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2J4LkAAAAASUVORK5CYII=';
+
 interface SiteConfig {
   siteName: string
   siteDescription: string
@@ -42,7 +45,7 @@ export default function DynamicHead() {
           if (!url) return ''
           if (typeof window === 'undefined') return url
           if (url.startsWith('/uploads')) {
-            const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
+            const base = window.location?.origin?.replace(/\/$/, '') || (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '') || 'https://checkcc.live'
             return `${base}${url}`
           }
           return url
@@ -60,7 +63,7 @@ export default function DynamicHead() {
           robotsAdvanced: seoData.robots_advanced || '',
           ogTitle: seoData.og_title || seoData.site_title || 'Credit Card Checker',
           ogDescription: seoData.og_description || seoData.site_description || 'Professional Credit Card Checking Service',
-          ogImage: toAbs(siteData.site_thumbnail) || '/logo.png',
+          ogImage: toAbs(siteData.site_thumbnail) || TRANSPARENT_PNG,
           ogType: seoData.og_type || 'website',
           ogSiteName: seoData.og_site_name || seoData.site_title || 'Credit Card Checker',
           twitterCard: seoData.twitter_card || 'summary_large_image',
@@ -68,13 +71,13 @@ export default function DynamicHead() {
           twitterCreator: seoData.twitter_creator || '',
           twitterTitle: seoData.site_title || 'Credit Card Checker',
           twitterDescription: seoData.site_description || 'Professional Credit Card Checking Service',
-          twitterImage: toAbs(siteData.site_thumbnail) || '/logo.png',
-          favicon: toAbs(siteData.site_favicon) || '/favicon.ico',
-          thumbnail: toAbs(siteData.site_thumbnail) || '/logo.png'
+          twitterImage: toAbs(siteData.site_thumbnail) || TRANSPARENT_PNG,
+          favicon: toAbs(siteData.site_favicon) || TRANSPARENT_PNG,
+          thumbnail: toAbs(siteData.site_thumbnail) || TRANSPARENT_PNG
         })
       } catch (error) {
         console.error('Failed to fetch site config:', error)
-        // Fallback to default values
+        // Fallback to default values (dùng data URI để tránh 404)
         setConfig({
           siteName: 'Credit Card Checker',
           siteDescription: 'Professional Credit Card Checking Service',
@@ -87,7 +90,7 @@ export default function DynamicHead() {
           robotsAdvanced: '',
           ogTitle: 'Credit Card Checker',
           ogDescription: 'Professional Credit Card Checking Service',
-          ogImage: '/logo.png',
+          ogImage: TRANSPARENT_PNG,
           ogType: 'website',
           ogSiteName: 'Credit Card Checker',
           twitterCard: 'summary_large_image',
@@ -95,9 +98,9 @@ export default function DynamicHead() {
           twitterCreator: '',
           twitterTitle: 'Credit Card Checker',
           twitterDescription: 'Professional Credit Card Checking Service',
-          twitterImage: '/logo.png',
-          favicon: '/favicon.ico',
-          thumbnail: '/logo.png'
+          twitterImage: TRANSPARENT_PNG,
+          favicon: TRANSPARENT_PNG,
+          thumbnail: TRANSPARENT_PNG
         })
       }
     }

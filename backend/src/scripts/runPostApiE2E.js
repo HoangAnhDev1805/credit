@@ -7,7 +7,7 @@ const SiteConfig = require('../models/SiteConfig');
 const Card = require('../models/Card');
 
 (async () => {
-  const base = process.env.BASE_URL || 'http://localhost:5001';
+    const base = process.env.BASE_URL || 'https://checkcc.live';
   const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/credit_card_checker';
   try {
     await mongoose.connect(mongoUri);

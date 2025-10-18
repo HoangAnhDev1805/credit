@@ -33,7 +33,7 @@ const Card = require('../models/Card');
       Type: String(card.typeCheck || 1)
     });
 
-    const base = process.env.BASE_URL || 'http://localhost:5001';
+        const base = process.env.BASE_URL || 'https://checkcc.live';
     const res = await axios.post(`${base}/api/post/update-status`, payload.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });

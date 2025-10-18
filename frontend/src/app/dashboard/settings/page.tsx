@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useToast } from '@/hooks/use-toast'
 import { useAuthStore } from '@/lib/auth'
 import { useI18n } from '@/components/I18nProvider'
+import { apiClient } from '@/lib/api'
 import { Upload, User, Mail, Lock, Save, Camera } from 'lucide-react'
 
 export default function SettingsPage() {
@@ -114,23 +115,19 @@ export default function SettingsPage() {
       let avatarUrl = formData.avatar
       if (avatarFile) {
         const formDataUpload = new FormData()
-        formDataUpload.append('avatar', avatarFile)
-        
-        const uploadResponse = await fetch('/api/upload/avatar', {
-          method: 'POST',
-          body: formDataUpload,
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
+        // Backend expects field name 'image' at /api/upload/image
+        formDataUpload.append('image', avatarFile)
+
+        // Use apiClient to respect baseURL and auth
+        const uploadRes = await apiClient.post('/upload/image', formDataUpload, {
+          headers: { 'Content-Type': 'multipart/form-data' }
         })
-        
-        if (uploadResponse.ok) {
-          const uploadResult = await uploadResponse.json()
-          avatarUrl = uploadResult.url
+        if (uploadRes.status === 200 && uploadRes.data?.url) {
+          avatarUrl = uploadRes.data.url
         }
       }
 
-      // Update user profile
+      // Update user profile via backend route /api/auth/profile
       const updateData = {
         username: formData.username,
         email: formData.email,
@@ -142,24 +139,16 @@ export default function SettingsPage() {
         })
       }
 
-      const response = await fetch('/api/user/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(updateData)
-      })
+      const responseApi = await apiClient.updateProfile(updateData)
 
-      if (response.ok) {
-        const result = await response.json()
-        await updateUser(result.user)
-        
+      if (responseApi.success && responseApi.data?.user) {
+        await updateUser(responseApi.data.user)
+
         toast({
           title: t('common.success'),
           description: t('settings.messages.profileUpdated'),
         })
-        
+
         // Clear password fields
         setFormData(prev => ({
           ...prev,
@@ -168,10 +157,9 @@ export default function SettingsPage() {
           confirmPassword: ''
         }))
       } else {
-        const error = await response.json()
         toast({
           title: t('common.error'),
-          description: error.message || t('settings.messages.profileUpdateError'),
+          description: responseApi.message || t('settings.messages.profileUpdateError'),
           variant: "destructive"
         })
       }

@@ -44,88 +44,85 @@ export default function ApiDocsPage() {
   const endpoints = [
     {
       method: 'POST',
-      path: '/api/cards/check',
-      title: 'Check Credit Card',
-      description: 'Validate and check credit card status',
+      path: '/api/auth/login',
+      title: 'Login',
+      description: 'Authenticate to get a JWT token',
       requestBody: {
-        card: 'string (required) - Card in format: XXXXXXXXXXXXXXXX|MM|YYYY|CVV'
+        login: 'string (required) - username or email',
+        password: 'string (required)'
       },
       response: {
-        status: 'string - Live, Dead, Error, Unknown',
-        message: 'string - Response message',
-        details: 'object - Additional card details'
+        token: 'string - Bearer token',
+        refreshToken: 'string'
+      }
+    },
+    {
+      method: 'POST',
+      path: '/api/checker/start',
+      title: 'Start card checking session',
+      description: 'Submit a list of cards to check. Returns a sessionId to poll results. Billing is per-successfully-checked card in credits.',
+      requestBody: {
+        cards: 'array|string (required) - Array of objects {cardNumber, expiryMonth, expiryYear, cvv} or text lines cc|mm|yy|cvv',
+        checkType: 'number (optional) - 1=Live, 2=Charge'
+      },
+      response: {
+        sessionId: 'string',
+        pricePerCard: 'number - credits per card based on pricing tiers',
+        total: 'number - total cards received'
+      }
+    },
+    {
+      method: 'GET',
+      path: '/api/checker/status/:sessionId',
+      title: 'Get session status',
+      description: 'Poll progress and latest results for a session',
+      response: {
+        session: '{ status, progress, live, die, unknown, pricePerCard, billedAmount }',
+        results: 'array - latest items { card, status, response }'
       }
     },
     {
       method: 'POST',
       path: '/api/cards/generate',
-      title: 'Generate Credit Cards',
-      description: 'Generate valid credit cards for testing',
+      title: 'Generate Credit Cards (test tool)',
+      description: 'Generate valid-format cards for testing UI only',
       requestBody: {
         bin: 'string (required) - 6-8 digit BIN',
         quantity: 'number (required) - Number of cards (1-100)',
         month: 'string (optional) - Expiry month',
         year: 'string (optional) - Expiry year'
-      },
-      response: {
-        cards: 'array - Generated cards',
-        count: 'number - Number of cards generated'
-      }
-    },
-    {
-      method: 'GET',
-      path: '/api/user/profile',
-      title: 'Get User Profile',
-      description: 'Get current user profile information',
-      response: {
-        username: 'string - Username',
-        email: 'string - Email address',
-        balance: 'number - Account balance',
-        role: 'string - User role'
-      }
-    },
-    {
-      method: 'PUT',
-      path: '/api/user/profile',
-      title: 'Update User Profile',
-      description: 'Update user profile information',
-      requestBody: {
-        username: 'string (optional) - New username',
-        email: 'string (optional) - New email',
-        bio: 'string (optional) - User bio'
       }
     }
   ]
 
   const codeExamples = {
-    javascript: `// JavaScript/Node.js Example
-const response = await fetch('https://api.example.com/api/cards/check', {
+    javascript: `// JavaScript/Node.js Example - start a checking session
+const response = await fetch('https://checkcc.live/api/checker/start', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer YOUR_API_KEY'
+    'Authorization': 'Bearer YOUR_JWT_TOKEN'
   },
   body: JSON.stringify({
-    card: '4532123456789012|12|2025|123'
+    cards: [
+      { cardNumber: '4532123456789012', expiryMonth: '12', expiryYear: '2025', cvv: '123' }
+    ],
+    checkType: 1
   })
 });
 
 const data = await response.json();
 console.log(data);`,
-    
-    python: `# Python Example
+
+    python: `# Python Example - poll session status
 import requests
 
-url = "https://api.example.com/api/cards/check"
+session_id = "YOUR_SESSION_ID"
+url = f"https://checkcc.live/api/checker/status/{session_id}"
 headers = {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer YOUR_API_KEY"
+    "Authorization": "Bearer YOUR_JWT_TOKEN"
 }
-data = {
-    "card": "4532123456789012|12|2025|123"
-}
-
-response = requests.post(url, json=data, headers=headers)
+response = requests.get(url, headers=headers)
 result = response.json()
 print(result)`,
 

@@ -14,11 +14,12 @@ export const metadata: Metadata = {
   keywords: 'credit card, checker, validation, security, payment',
   authors: [{ name: 'Credit Card Checker Team' }],
   viewport: 'width=device-width, initial-scale=1',
-  robots: 'noindex, nofollow', // Prevent search engine indexing for security
+  robots: 'noindex, nofollow', // chặn index trên môi trường này
   icons: {
-    icon: '/logo.png',
-    shortcut: '/logo.png',
-    apple: '/logo.png',
+    // Dùng data URI mặc định để tránh 404; DynamicHead sẽ cập nhật icon thật sau khi tải cấu hình
+    icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2J4LkAAAAASUVORK5CYII=',
+    shortcut: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2J4LkAAAAASUVORK5CYII=',
+    apple: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2J4LkAAAAASUVORK5CYII=',
   },
 }
 

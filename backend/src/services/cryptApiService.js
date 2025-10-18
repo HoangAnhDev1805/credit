@@ -7,7 +7,7 @@ const SiteConfig = require('../models/SiteConfig');
 class CryptAPIService {
   constructor() {
     this.merchantAddress = process.env.CRYPTAPI_MERCHANT_ADDRESS;
-    this.baseUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+        this.baseUrl = process.env.BACKEND_URL || 'https://checkcc.live';
     this.defaultCoin = process.env.CRYPTAPI_DEFAULT_COIN || 'btc';
     this.publicKey = null;
 

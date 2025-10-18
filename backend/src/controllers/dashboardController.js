@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Card = require('../models/Card');
 const PaymentRequest = require('../models/PaymentRequest');
+const cryptApiService = require('../services/cryptApiService');
 const logger = require('../config/logger');
 
 // GET /api/dashboard/stats
@@ -23,15 +24,20 @@ exports.getStats = async (req, res) => {
     const [
       totalChecked,
       liveCount,
+      dieCount,
+      unknownCount,
       activeUsers,
       todayChecked,
       weekChecked,
       monthChecked,
       avgResponseAgg,
       approvedAmountAgg,
+      currentUser
     ] = await Promise.all([
       Card.countDocuments({}),
       Card.countDocuments({ status: 'live' }),
+      Card.countDocuments({ status: 'die' }),
+      Card.countDocuments({ status: 'unknown' }),
       User.countDocuments({ status: 'active' }),
       Card.countDocuments({ createdAt: { $gte: startOfDay } }),
       Card.countDocuments({ createdAt: { $gte: startOfWeek } }),
@@ -45,6 +51,7 @@ exports.getStats = async (req, res) => {
         { $match: { status: 'approved' } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
+      User.findById(req.user?.id).select('balance')
     ]);
 
     const avgResponseTime = Math.round((avgResponseAgg[0]?.avg || 0));
@@ -62,6 +69,11 @@ exports.getStats = async (req, res) => {
         thisWeekChecked: weekChecked,
         thisMonthChecked: monthChecked,
         totalRevenue,
+        // New fields for UI cards
+        totalCredit: currentUser?.balance || 0,
+        totalCardLive: liveCount,
+        totalCardDie: dieCount,
+        totalCardUnknown: unknownCount
       },
     });
   } catch (error) {
@@ -107,12 +119,23 @@ exports.getStatus = async (req, res) => {
     const mongooseConn = mongoose.connection.readyState === 1 ? 'online' : 'offline';
     const paymentMethodCount = await require('../models/PaymentMethod').countDocuments();
 
+    // Determine payment status based on crypto-payment (CryptAPI)
+    let payment = 'offline';
+    try {
+      if (cryptApiService?.isConfigured()) {
+        payment = 'online';
+      } else if (paymentMethodCount > 0) {
+        // fallback: if any manual payment methods exist
+        payment = 'online';
+      }
+    } catch {}
+
     return res.json({
       success: true,
       data: {
         api: 'online',
         database: mongooseConn === 'online' ? 'online' : 'offline',
-        payment: paymentMethodCount > 0 ? 'online' : 'offline',
+        payment,
       },
     });
   } catch (error) {

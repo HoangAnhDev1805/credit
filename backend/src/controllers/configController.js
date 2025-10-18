@@ -14,11 +14,16 @@ exports.getPublicConfigs = async (req, res) => {
     configs = {};
   }
 
-  // Bổ sung payment configs public: credit packages, credit per USD, và crypto USD prices
+  // Bổ sung payment configs public: credit packages, credit per USD, crypto USD prices,
+  // và các cờ hiển thị menu theo admin/settings
   try {
     const creditPerUsd = await SiteConfig.getByKey('payment_credit_per_usd');
     const creditPackages = await SiteConfig.getByKey('payment_credit_packages');
     const cryptoUsdPrices = await SiteConfig.getByKey('crypto_usd_prices');
+    const showBuyCredits = await SiteConfig.getByKey('payment_show_buy_credits');
+    const showCryptoPayment = await SiteConfig.getByKey('payment_show_crypto_payment');
+    const minDeposit = await SiteConfig.getByKey('min_deposit_amount');
+    const maxDeposit = await SiteConfig.getByKey('max_deposit_amount');
 
     configs.payment = configs.payment || {};
     configs.payment.payment_credit_per_usd = Number(creditPerUsd || 10);
@@ -26,6 +31,10 @@ exports.getPublicConfigs = async (req, res) => {
     if (cryptoUsdPrices && typeof cryptoUsdPrices === 'object') {
       configs.payment.crypto_usd_prices = cryptoUsdPrices;
     }
+    configs.payment.payment_show_buy_credits = showBuyCredits !== false;
+    configs.payment.payment_show_crypto_payment = showCryptoPayment !== false;
+    configs.payment.min_deposit_amount = Number(minDeposit || 10);
+    configs.payment.max_deposit_amount = Number(maxDeposit || 10000);
 
     // Fallback default packages nếu rỗng
     if (!configs.payment.payment_credit_packages || configs.payment.payment_credit_packages.length === 0) {
@@ -40,6 +49,10 @@ exports.getPublicConfigs = async (req, res) => {
     // Ignore errors, dùng defaults an toàn
     configs.payment = configs.payment || {};
     configs.payment.payment_credit_per_usd = configs.payment.payment_credit_per_usd || 10;
+    configs.payment.payment_show_buy_credits = configs.payment.payment_show_buy_credits !== false;
+    configs.payment.payment_show_crypto_payment = configs.payment.payment_show_crypto_payment !== false;
+    configs.payment.min_deposit_amount = configs.payment.min_deposit_amount || 10;
+    configs.payment.max_deposit_amount = configs.payment.max_deposit_amount || 10000;
     configs.payment.payment_credit_packages = configs.payment.payment_credit_packages || [
       { id: 1, credits: 100, price: 10, bonus: 0, popular: false, savings: '' },
       { id: 2, credits: 500, price: 45, bonus: 50, popular: true, savings: '10% off' },

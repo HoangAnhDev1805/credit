@@ -19,7 +19,8 @@ import {
   AlertCircle,
   Loader2,
   BarChart3,
-  Zap
+  Zap,
+  Coins
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -38,7 +39,12 @@ export default function DashboardPage() {
     todayChecked: 0,
     thisWeekChecked: 0,
     thisMonthChecked: 0,
-    totalRevenue: 0
+    totalRevenue: 0,
+    // new fields from backend for cards
+    totalCredit: 0,
+    totalCardLive: 0,
+    totalCardDie: 0,
+    totalCardUnknown: 0
   })
   const [recentActivity, setRecentActivity] = useState([])
   const [systemStatus, setSystemStatus] = useState({
@@ -159,17 +165,63 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t('dashboard.stats.activeUsers')}</CardTitle>
-            <Users className="h-4 w-4 text-purple-600" />
+            <CardTitle className="text-sm font-medium">Total Credit</CardTitle>
+            <Coins className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">{stats.activeUsers}</div>
-            <p className="text-xs text-muted-foreground">
-              +{Math.round(stats.activeUsers * 0.1)} new this week
-            </p>
+            <div className="text-2xl font-bold text-purple-600">{Number(stats.totalCredit || 0).toLocaleString()} Credits</div>
+            <p className="text-xs text-muted-foreground">Available balance</p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Total Cards - separate row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Card Checker</CardTitle>
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalChecked.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">All-time</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Card Live</CardTitle>
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{stats.totalCardLive?.toLocaleString?.() || 0}</div>
+            <p className="text-xs text-muted-foreground">Successful</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Card Die</CardTitle>
+            <AlertCircle className="h-4 w-4 text-red-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{stats.totalCardDie?.toLocaleString?.() || 0}</div>
+            <p className="text-xs text-muted-foreground">Failed</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Card Unknown</CardTitle>
+            <Clock className="h-4 w-4 text-yellow-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">{stats.totalCardUnknown?.toLocaleString?.() || 0}</div>
+            <p className="text-xs text-muted-foreground">Pending/Unknown</p>
+          </CardContent>
+        </Card>
+      </div>
+
 
       {/* Quick Actions */}
       <div>
@@ -220,6 +272,9 @@ export default function DashboardPage() {
                 <span>{t('dashboard.navigation.items.buyCredits')}</span>
               </CardTitle>
               <CardDescription>
+
+
+
                 Add credits to your account for services
               </CardDescription>
             </CardHeader>

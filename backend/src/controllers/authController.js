@@ -231,8 +231,21 @@ const updateProfile = async (req, res, next) => {
       });
     }
 
-    const { email, currentPassword, newPassword, avatar, bio } = req.body;
+    const { username, email, currentPassword, newPassword, avatar, bio } = req.body;
     const user = await User.findById(req.user.id).select('+password');
+
+    // Update username if provided
+    if (username && username !== user.username) {
+      // Check if username is already taken
+      const existingUsername = await User.findOne({ username });
+      if (existingUsername) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tên đăng nhập đã được sử dụng'
+        });
+      }
+      user.username = username;
+    }
 
     // Update email if provided
     if (email && email !== user.email) {

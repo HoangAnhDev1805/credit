@@ -744,7 +744,7 @@ export default function AdminSettings() {
                   <div className="border rounded-lg overflow-hidden bg-white max-w-md">
                     {siteConfig?.thumbnail && (
                       <img
-                        src={siteConfig.thumbnail}
+                        src={siteConfig.thumbnail && (siteConfig.thumbnail.startsWith('http') ? siteConfig.thumbnail : (apiClient.getBaseUrl().replace('/api', '') + siteConfig.thumbnail))}
                         alt="OG Preview"
                         className="w-full h-48 object-cover"
                       />
@@ -768,7 +768,7 @@ export default function AdminSettings() {
                   <h3 className="font-semibold mb-2">Bảng giá hiện tại</h3>
                   <div className="border rounded-lg p-4">
                     <div className="text-lg font-semibold">
-                      {pricingConfig?.pricePerCard?.toLocaleString()} {pricingConfig?.currency} / thẻ
+                      {pricingConfig?.pricePerCard?.toLocaleString()} Credits / thẻ
                     </div>
                     {pricingConfig?.bulkDiscounts && pricingConfig.bulkDiscounts.length > 0 && (
                       <div className="mt-2 text-sm text-muted-foreground">

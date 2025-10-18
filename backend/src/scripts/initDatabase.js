@@ -204,8 +204,8 @@ async function initializeDatabase() {
 
     console.log('\n🌐 Next Steps:');
     console.log('1. Start the server: npm run dev');
-    console.log('2. Test API: http://localhost:5000/api/health');
-    console.log('3. View API docs: http://localhost:5000/api/docs');
+        console.log('2. Test API: https://checkcc.live/api/health');
+        console.log('3. View API docs: https://checkcc.live/api/docs');
 
   } catch (error) {
     logger.error('Database initialization failed:', error);

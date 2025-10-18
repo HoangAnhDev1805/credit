@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'checkcc-backend',
+      name: 'backend',
       cwd: './backend',
       script: 'node',
       args: 'src/server.js',
@@ -18,7 +18,7 @@ module.exports = {
       },
     },
     {
-      name: 'checkcc-frontend-dev',
+      name: 'frontend-dev',
       cwd: './frontend',
       // Use Next.js CLI directly via Node to avoid shell issues on Windows
       script: 'node',
@@ -32,7 +32,7 @@ module.exports = {
       },
     },
     {
-      name: 'checkcc-frontend',
+      name: 'frontend',
       cwd: './frontend',
       script: 'node',
       args: './node_modules/next/dist/bin/next start -p 3000 -H 0.0.0.0',

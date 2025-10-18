@@ -29,6 +29,7 @@ import { useI18n } from '@/components/I18nProvider'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useToast } from '@/hooks/use-toast'
+import { apiClient } from '@/lib/api'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -60,23 +61,26 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   useEffect(() => {
     const fetchSiteConfig = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/config/public`)
-        if (response.ok) {
-          const data = await response.json()
-          const toAbs = (url?: string) => {
-            if (!url) return '/logo.svg'
-            if (url.startsWith('/uploads')) {
-              const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
-              return `${base}${url}`
-            }
-            return url
+        const response = await apiClient.getPublicConfig()
+        const data = (response as any)?.data?.data
+        const toAbs = (url?: string) => {
+          if (!url) return '/logo.png';
+          // Already absolute
+          if (url.startsWith('http://') || url.startsWith('https://')) return url;
+          // If file is from backend uploads, prefix backend base
+          if (url.startsWith('/uploads')) {
+            const base = apiClient.getBaseUrl?.() || '';
+            const backendUrl = base.endsWith('/api') ? base.slice(0, -4) : base; // strip trailing /api
+            return `${backendUrl}${url}`;
           }
-          if (data.success && data.data.general?.site_logo) {
-            setLogoUrl(toAbs(data.data.general.site_logo))
-          }
-          if (data.success && data.data.payment) {
-            setPaymentConfig(data.data.payment)
-          }
+          // Otherwise, keep as-is to let Next.js serve from /public
+          return url;
+        };
+        if (data?.general?.site_logo) {
+          setLogoUrl(toAbs(data.general.site_logo))
+        }
+        if (data?.payment) {
+          setPaymentConfig(data.payment)
         }
       } catch (error) {
         console.error('Failed to fetch site config:', error)
@@ -190,9 +194,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="h-16 px-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <img
-              src={logoUrl}
+              src={logoUrl || '/logo.png'}
               alt="Logo"
-              className="h-8 w-auto"
+              className="h-12 w-auto"
               onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png' }}
             />
             <span className="font-semibold">Checker Credit</span>
@@ -328,8 +332,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               {/* Credits Display */}
               <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-300">
                 <Coins className="h-4 w-4" />
-                <span className="hidden sm:block">${credits}</span>
-                <span className="sm:hidden">${credits}</span>
+                <span className="hidden sm:block">{credits} Credits</span>
+                <span className="sm:hidden">{credits} Cr</span>
               </div>
 
               {/* Settings Button */}

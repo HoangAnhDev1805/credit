@@ -51,8 +51,8 @@ router.get('/users/:id/cards', getUserCards);
 router.get('/cards', getCards);
 
 // Payment management routes
-router.get('/payment-requests', getPaymentRequests);
-router.put('/payment-requests/:id', updatePaymentRequest);
+router.get('/payments', getPaymentRequests);
+router.put('/payments/:id', updatePaymentRequest);
 router.get('/payment-methods', getPaymentMethods);
 router.post('/payment-methods', createPaymentMethod);
 router.put('/payment-methods/:id', updatePaymentMethod);
