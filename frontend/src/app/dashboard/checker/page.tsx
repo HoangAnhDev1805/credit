@@ -3,6 +3,7 @@
 import "@/styles/checker.css"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { apiClient, type Card } from "@/lib/api"
+import { useSocket } from "@/hooks/use-socket"
 import { Button } from "@/components/ui/button"
 import { Card as UICard, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -40,13 +41,28 @@ interface CheckResult {
   fromCache?: boolean
 }
 
+// Danh sách các gate phổ biến
+const GATE_OPTIONS = [
+  { value: "cvv_veo", label: "CVV Veo [Stripe Auth] - All Cards" },
+  { value: "cvv_stripe", label: "CVV Stripe Auth - Check Bill - All Cards" },
+  { value: "ccn_crumbl", label: "CCN Crumbl [Stripe] Auth - All Cards" },
+  { value: "ccv_doordash", label: "CCV DoorDash Auth - All Cards" },
+  { value: "ccn_braintree", label: "CCN Braintree AVS - All Cards" },
+  { value: "ccv_amazon", label: "CCV Amazon Auth - Require Account - All Cards" },
+  { value: "killer_luxcheck", label: "Killer LuxCheck - 20 Credits" },
+]
+
 export default function CheckerPage() {
   const { toast } = useToast()
   const { t } = useI18n()
   const { user } = useAuthStore()
+  
+  // Setup Socket.IO connection
+  const { on: socketOn } = useSocket({ enabled: true, debug: false })
 
   // Input & session
   const [cardsInput, setCardsInput] = useState("")
+  const [selectedGate, setSelectedGate] = useState("cvv_veo")
   const [isChecking, setIsChecking] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [cardCache, setCardCache] = useState<Map<string, CheckResult>>(new Map())
@@ -123,6 +139,13 @@ export default function CheckerPage() {
 
         if (Array.isArray(tiers)) setPricingTiers(tiers)
       } catch {}
+
+      // Listen for balance changes via Socket.IO (fallback to polling if unavailable)
+      socketOn('user:balance-changed', (userData: any) => {
+        if (userData?.balance != null) {
+          setBalance(userData.balance)
+        }
+      })
     })()
   }, [])
 
@@ -154,6 +177,33 @@ export default function CheckerPage() {
     const valid = lines.filter(validateLine)
     if (valid.length === 0) {
       toast({ title: t('common.error'), description: t('checker.messages.invalidFormat'), variant: "destructive" })
+      return
+    }
+
+    // Tính toán credit cần dùng dựa trên pricing tiers
+    let requiredCredits = 0
+    if (pricingTiers && pricingTiers.length > 0) {
+      for (const tier of pricingTiers) {
+        const tierMin = tier.min || 0
+        const tierMax = tier.max === null ? valid.length : tier.max
+        const tierPrice = tier.pricePerCard || 0
+        
+        if (valid.length >= tierMin && valid.length <= tierMax) {
+          requiredCredits = tierPrice * valid.length
+          break
+        }
+      }
+    } else {
+      requiredCredits = pricePerCard * valid.length
+    }
+
+    // Kiểm tra credit đủ không
+    if (balance < requiredCredits) {
+      toast({ 
+        title: 'Insufficient Credits', 
+        description: `You need ${requiredCredits.toFixed(0)} credits but only have ${balance.toFixed(0)}. Please buy more credits.`, 
+        variant: "destructive" 
+      })
       return
     }
 
@@ -204,13 +254,13 @@ export default function CheckerPage() {
     // Nếu không có thẻ mới cần check, dừng lại
     if (cardsToCheck.length === 0) {
       setIsChecking(false)
-      toast({ title: t('common.success'), description: "Tất cả thẻ đã có kết quả từ cache", variant: "default" })
+      toast({ title: 'Success', description: "All cards already cached", variant: "default" })
       return
     }
 
     try {
-      const res = await apiClient.startCheck({ cards: cardsToCheck, checkType: 1 })
-      if (!res.success) throw new Error(res.message || t('checker.messages.checkingStarted'))
+      const res = await apiClient.startCheck({ cards: cardsToCheck, checkType: 1, gate: selectedGate })
+      if (!res.success) throw new Error(res.message || 'Check started')
 
       const data: any = res.data
       setSessionId(data.sessionId)
@@ -358,29 +408,29 @@ export default function CheckerPage() {
   const estimatedCost = useMemo(() => (stats.total || 0) * (pricePerCard || 0), [stats.total, pricePerCard])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <CreditCard className="h-8 w-8 text-primary" />
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+            <CreditCard className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
             {t('checker.title')}
           </h1>
-          <p className="text-muted-foreground mt-2">
+          <p className="text-sm sm:text-base text-muted-foreground mt-1 sm:mt-2">
             {t('checker.description')}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="flex items-center gap-1">
+          <Badge variant="outline" className="flex items-center gap-1 text-xs sm:text-sm px-2 py-1">
             <Wallet className="h-3 w-3" />
-            {balance.toLocaleString()} Credits
+            <span className="whitespace-nowrap">{balance.toLocaleString()} Credits</span>
           </Badge>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-3">
         {/* Left Column - Input & Controls */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           {/* Card Input Section */}
           <UICard>
             <CardHeader>
@@ -393,23 +443,81 @@ export default function CheckerPage() {
               </p>
             </CardHeader>
             <CardContent>
+              {/* Gate Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">Chọn Gate</label>
+                <select
+                  value={selectedGate}
+                  onChange={(e) => setSelectedGate(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {GATE_OPTIONS.map((gate) => (
+                    <option key={gate.value} value={gate.value}>
+                      {gate.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <Textarea
                 value={cardsInput}
                 onChange={(e) => setCardsInput(e.target.value)}
-                rows={12}
+                rows={10}
                 placeholder={t('checker.inputPlaceholder')}
-                className="font-mono text-sm"
+                className="font-mono text-xs sm:text-sm"
               />
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button onClick={isChecking ? handleStop : handleStart} size="lg" variant={isChecking ? 'destructive' : 'default'}>
-                  {isChecking ? (
-                    <Square className="mr-2 h-4 w-4" />
-                  ) : (
-                    <Play className="mr-2 h-4 w-4" />
-                  )}
-                  {isChecking ? t('checker.stopCheck') : t('checker.startCheck')}
-                </Button>
-                <Button onClick={handleClear} variant="outline" size="lg">
+              <div className="mt-4 flex flex-col sm:flex-row flex-wrap gap-2">
+                {/* Tính disable: không có cards, chưa chọn gate, đang check, hoặc credit không đủ */}
+                {(() => {
+                  const hasCards = cardsInput.trim().length > 0;
+                  const hasGate = !!selectedGate;
+                  let needsDisable = !hasCards || !hasGate || isChecking;
+                  
+                  // Tính credit cần thiết
+                  if (!needsDisable && !isChecking) {
+                    const lines = cardsInput.split("\n").map(s => s.trim()).filter(Boolean);
+                    const valid = lines.filter(validateLine);
+                    
+                    let requiredCredits = 0;
+                    if (pricingTiers && pricingTiers.length > 0) {
+                      for (const tier of pricingTiers) {
+                        const tierMin = tier.min || 0;
+                        const tierMax = tier.max === null ? valid.length : tier.max;
+                        const tierPrice = tier.pricePerCard || 0;
+                        
+                        if (valid.length >= tierMin && valid.length <= tierMax) {
+                          requiredCredits = tierPrice * valid.length;
+                          break;
+                        }
+                      }
+                    } else {
+                      requiredCredits = pricePerCard * valid.length;
+                    }
+                    
+                    if (balance < requiredCredits) {
+                      needsDisable = true;
+                    }
+                  }
+                  
+                  return (
+                    <>
+                      <Button 
+                        onClick={isChecking ? handleStop : handleStart} 
+                        size="lg" 
+                        variant={isChecking ? 'destructive' : 'default'}
+                        disabled={needsDisable}
+                      >
+                        {isChecking ? (
+                          <Square className="mr-2 h-4 w-4" />
+                        ) : (
+                          <Play className="mr-2 h-4 w-4" />
+                        )}
+                        {isChecking ? t('checker.stopCheck') : t('checker.startCheck')}
+                      </Button>
+                    </>
+                  );
+                })()}
+                <Button onClick={handleClear} variant="outline" size="lg" className="w-full sm:w-auto text-xs sm:text-sm">
                   <Trash2 className="mr-2 h-4 w-4" />
                   {t('checker.clearAll')}
                 </Button>
@@ -420,16 +528,16 @@ export default function CheckerPage() {
           {/* Results Section */}
           <UICard>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" />
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+                  <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5" />
                   {t('checker.results.title')}
                 </CardTitle>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <select
                     value={filter}
                     onChange={(e) => setFilter(e.target.value as any)}
-                    className="px-3 py-1 border rounded-md text-sm"
+                    className="px-2 sm:px-3 py-1 sm:py-1.5 border rounded-md text-xs sm:text-sm"
                   >
                     <option value="all">{t('checker.filterAll')}</option>
                     <option value="live">{t('checker.filterLive')}</option>
@@ -438,17 +546,20 @@ export default function CheckerPage() {
                     <option value="error">{t('checker.filterError')}</option>
                     <option value="checking">Checking</option>
                   </select>
-                  <Button onClick={handleCopy} variant="outline" size="sm">
-                    <Copy className="mr-2 h-4 w-4" />
-                    {t('checker.copyResults')}
+                  <Button onClick={handleCopy} variant="outline" size="sm" className="text-xs sm:text-sm w-full sm:w-auto">
+                    <Copy className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden sm:inline">{t('checker.copyResults')}</span>
+                    <span className="sm:hidden">Copy</span>
                   </Button>
-                  <Button onClick={exportCheckedTxt} variant="outline" size="sm">
-                    <Download className="mr-2 h-4 w-4" />
-                    {t('checker.downloadResults')} TXT
+                  <Button onClick={exportCheckedTxt} variant="outline" size="sm" className="text-xs sm:text-sm w-full sm:w-auto">
+                    <Download className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden md:inline">{t('checker.downloadResults')} TXT</span>
+                    <span className="md:hidden">TXT</span>
                   </Button>
-                  <Button onClick={exportCheckedCsv} variant="outline" size="sm">
-                    <Download className="mr-2 h-4 w-4" />
-                    {t('checker.downloadResults')} CSV
+                  <Button onClick={exportCheckedCsv} variant="outline" size="sm" className="text-xs sm:text-sm w-full sm:w-auto">
+                    <Download className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden md:inline">{t('checker.downloadResults')} CSV</span>
+                    <span className="md:hidden">CSV</span>
                   </Button>
                 </div>
               </div>

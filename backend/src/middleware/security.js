@@ -33,7 +33,7 @@ const createRateLimit = (windowMs, max, message, skipSuccessfulRequests = false,
 // General rate limiting - increased for better UX
 const generalLimiter = createRateLimit(
   15 * 60 * 1000, // 15 minutes
-  300, // limit each IP to 300 requests per windowMs (increased from 100)
+  1000, // limit each IP to 1000 requests per windowMs (increased from 300)
   'Too many requests from this IP, please try again later',
   false,
   {
@@ -41,7 +41,8 @@ const generalLimiter = createRateLimit(
     skip: (req) => {
       const env = process.env.NODE_ENV || 'development';
       const url = req.originalUrl || '';
-      if (env !== 'production') return true; // dev/test: bỏ qua limiter tổng
+      // Always skip rate limit in development mode
+      if (env !== 'production') return true;
       // Cho phép POST API dành cho ZennoPoster không bị chặn bởi limiter tổng
       if (url.startsWith('/api/post/')) {
         return true;
@@ -63,7 +64,7 @@ const generalLimiter = createRateLimit(
 // Strict rate limiting for auth endpoints - relaxed for development
 const authLimiter = createRateLimit(
   15 * 60 * 1000, // 15 minutes
-  500, // limit each IP to 500 requests per windowMs (increased for dev)
+  1000, // limit each IP to 1000 requests per windowMs (increased from 500)
   'Too many authentication attempts, please try again later',
   true // skip successful requests
 );
@@ -71,7 +72,7 @@ const authLimiter = createRateLimit(
 // API rate limiting - increased for dashboard usage
 const apiLimiter = createRateLimit(
   1 * 60 * 1000, // 1 minute
-  100, // limit each IP to 100 requests per minute (increased from 30)
+  500, // limit each IP to 500 requests per minute (increased from 100)
   'Too many API requests, please try again later'
 );
 

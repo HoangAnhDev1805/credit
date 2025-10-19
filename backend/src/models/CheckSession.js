@@ -33,6 +33,7 @@ const checkSessionSchema = new mongoose.Schema({
   pricePerCard: { type: Number, default: 0, min: 0 },
   billedAmount: { type: Number, default: 0, min: 0 },
   billedAt: { type: Date },
+  gate: { type: String, default: 'cvv_veo', index: true },
   startedAt: { type: Date, default: Date.now },
   endedAt: { type: Date }
 }, {

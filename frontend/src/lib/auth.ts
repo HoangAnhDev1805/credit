@@ -50,7 +50,7 @@ export const useAuthStore = create<AuthState>()(
             localStorage.setItem('refreshToken', refreshToken);
             localStorage.setItem('user', JSON.stringify(user));
           } else {
-            throw new Error(response.message || 'Đăng nhập thất bại');
+            throw new Error(response.message || 'Login failed');
           }
         } catch (error: any) {
           set({ isLoading: false });

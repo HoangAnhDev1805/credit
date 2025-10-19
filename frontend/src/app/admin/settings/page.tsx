@@ -32,6 +32,7 @@ interface SiteConfig {
   logo: string
   favicon: string
   thumbnail: string
+  telegramSupportUrl?: string
 }
 
 interface PricingConfig {
@@ -291,6 +292,7 @@ export default function AdminSettings() {
   const contactFields: FormField[] = [
     { name: 'contactEmail', label: 'Email liên hệ', type: 'email', placeholder: 'contact@example.com' },
     { name: 'supportPhone', label: 'Số điện thoại hỗ trợ', type: 'text', placeholder: '+84 123 456 789' },
+    { name: 'telegramSupportUrl', label: 'Telegram hỗ trợ', type: 'text', placeholder: 'https://t.me/yourgroup', description: 'URL nhóm Telegram hoặc bot hỗ trợ' },
     { name: 'address', label: 'Địa chỉ', type: 'textarea', placeholder: 'Địa chỉ công ty...' },
     { name: 'footerText', label: 'Text footer', type: 'textarea', placeholder: 'Copyright text và thông tin khác...' },
   ]

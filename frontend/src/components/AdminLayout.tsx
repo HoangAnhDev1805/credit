@@ -54,6 +54,11 @@ const navigation = [
     name: 'Cấu hình Website',
     href: '/admin/settings',
     icon: Settings
+  },
+  {
+    name: 'API Tester',
+    href: '/admin/api-tester',
+    icon: CreditCard // Reuse icon, or can import Search/Zap
   }
 ]
 

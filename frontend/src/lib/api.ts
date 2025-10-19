@@ -136,6 +136,9 @@ class ApiClient {
       (config) => {
         if (this.token) {
           config.headers.Authorization = `Bearer ${this.token}`;
+          console.log('[API Client] Token added to request:', config.url, '| Token:', this.token.substring(0, 30) + '...');
+        } else {
+          console.warn('[API Client] No token available for request:', config.url);
         }
         return config;
       },
@@ -294,7 +297,7 @@ class ApiClient {
   }
 
   // Checker (Zenno) endpoints
-  async startCheck(payload: { cards: Card[] | string; checkType?: number }): Promise<ApiResponse<{ sessionId: string; estimatedCost: number; pricePerCard: number; total: number }>> {
+  async startCheck(payload: { cards: Card[] | string; checkType?: number; gate?: string }): Promise<ApiResponse<{ sessionId: string; estimatedCost: number; pricePerCard: number; total: number }>> {
     const response = await this.client.post('/checker/start', payload);
     return response.data;
   }

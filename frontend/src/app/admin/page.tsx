@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { StatCard, CardGrid } from '@/components/shared/Cards'
 import { useToast } from '@/components/shared/Toast'
 import { apiClient } from '@/lib/api'
@@ -12,7 +13,8 @@ import {
   Activity,
   AlertCircle,
   CheckCircle,
-  Clock
+  Clock,
+  Zap
 } from 'lucide-react'
 
 interface DashboardStats {
@@ -131,6 +133,28 @@ export default function AdminDashboard() {
       <div>
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <p className="text-muted-foreground">Tổng quan hệ thống quản trị</p>
+      </div>
+
+      {/* Admin Tools */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Link href="/admin/api-tester" className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+          <div className="flex items-center space-x-4">
+            <Zap className="h-10 w-10 text-white" />
+            <div>
+              <h3 className="text-lg font-semibold text-white">Test API</h3>
+              <p className="text-sm text-cyan-100">Kiểm tra LoaiDV 1 & 2</p>
+            </div>
+          </div>
+        </Link>
+        <Link href="/admin/api-tester?tab=crypto" className="p-6 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+          <div className="flex items-center space-x-4">
+            <CreditCard className="h-10 w-10 text-white" />
+            <div>
+              <h3 className="text-lg font-semibold text-white">Test CryptAPI</h3>
+              <p className="text-sm text-orange-100">Kiểm tra giao dịch crypto</p>
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* User Statistics */}

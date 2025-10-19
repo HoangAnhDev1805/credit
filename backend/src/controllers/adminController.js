@@ -293,10 +293,15 @@ const updateUser = async (req, res, next) => {
     if (role) user.role = role;
     if (balance !== undefined || addAmount !== undefined || subtractAmount !== undefined) {
       const oldBalance = user.balance;
-      // Ưu tiên add/subtract nếu được truyền, nếu không có thì dùng balance tuyệt đối
-      if (typeof addAmount === 'number') user.balance = oldBalance + Math.max(0, addAmount);
-      if (typeof subtractAmount === 'number') user.balance = Math.max(0, (user.balance ?? oldBalance) - Math.max(0, subtractAmount));
-      if (balance !== undefined && typeof balance === 'number') user.balance = balance;
+      
+      // Ưu tiên add/subtract (chỉ một trong hai), nếu không có thì dùng balance tuyệt đối
+      if (typeof addAmount === 'number' && addAmount > 0) {
+        user.balance = oldBalance + addAmount;
+      } else if (typeof subtractAmount === 'number' && subtractAmount > 0) {
+        user.balance = Math.max(0, oldBalance - subtractAmount);
+      } else if (typeof balance === 'number') {
+        user.balance = Math.max(0, balance);
+      }
 
       const diff = user.balance - oldBalance;
       if (diff !== 0) {
@@ -836,7 +841,11 @@ module.exports = {
         // Social links
         socialLinks: social?.social_links || { facebook: '', twitter: '', linkedin: '', youtube: '' },
         // Contact
-        contactEmail: general?.contact_email || 'support@example.com'
+        contactEmail: general?.contact_email || 'support@example.com',
+        supportPhone: general?.support_phone || '',
+        address: general?.address || '',
+        footerText: general?.footer_text || '',
+        telegramSupportUrl: general?.telegram_support_url || ''
       };
 
       res.json({
@@ -884,6 +893,12 @@ module.exports = {
       if (payload.twitterImage !== undefined) updates['twitter_image'] = payload.twitterImage;
       // Social
       if (payload.socialLinks !== undefined) updates['social_links'] = payload.socialLinks;
+      // Contact
+      if (payload.contactEmail !== undefined) updates['contact_email'] = payload.contactEmail;
+      if (payload.supportPhone !== undefined) updates['support_phone'] = payload.supportPhone;
+      if (payload.address !== undefined) updates['address'] = payload.address;
+      if (payload.footerText !== undefined) updates['footer_text'] = payload.footerText;
+      if (payload.telegramSupportUrl !== undefined) updates['telegram_support_url'] = payload.telegramSupportUrl;
 
       // cập nhật hàng loạt theo key-value
       await SiteConfig.initializeDefaults();

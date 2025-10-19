@@ -56,7 +56,7 @@ async function getPricePerCard(count) {
 
 exports.startOrStop = async (req, res) => {
   try {
-    const { cards, stop = false, sessionId, checkType = 1 } = req.body || {};
+    const { cards, stop = false, sessionId, checkType = 1, gate = 'cvv_veo' } = req.body || {};
     const userId = req.user && req.user.id;
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
@@ -93,7 +93,7 @@ exports.startOrStop = async (req, res) => {
     }
 
     const sid = crypto.randomUUID();
-    const session = await CheckSession.create({ sessionId: sid, userId, total: parsed.length, pending: parsed.length, pricePerCard });
+    const session = await CheckSession.create({ sessionId: sid, userId, total: parsed.length, pending: parsed.length, pricePerCard, gate });
 
     // Insert cards vào stock user, gắn originUserId + sessionId
     const docs = parsed.map(c => {

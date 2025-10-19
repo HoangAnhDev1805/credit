@@ -130,12 +130,28 @@ export default function GenerateCardsPage() {
       })
 
       if (response.ok) {
-        const data = await response.json()
-        const cards = data.cards || []
+        const responseData = await response.json()
+        console.log('API Response:', responseData)
+        
+        // Backend returns { success: true, data: { cards: [...], count: number } }
+        const cards = responseData.data?.cards || responseData.cards || responseData.data || []
+        console.log('Extracted cards:', cards, 'Length:', Array.isArray(cards) ? cards.length : 'not array')
+        
+        if (!Array.isArray(cards)) {
+          console.error('Cards is not an array:', cards)
+          throw new Error('Invalid response format from API')
+        }
+        
+        if (cards.length === 0) {
+          console.warn('Cards array is empty')
+          throw new Error('No cards generated')
+        }
+        
+        console.log('Setting generated cards, count:', cards.length)
         setGeneratedCards(cards)
 
         // Update stats
-        const brands = new Set(cards.map((card: GeneratedCard) => card.brand)) as Set<string>
+        const brands = new Set(cards.map((card: any) => card.brand || card.cardBrand || 'Unknown')) as Set<string>
         setStats({
           totalGenerated: cards.length,
           brands,
@@ -144,13 +160,16 @@ export default function GenerateCardsPage() {
 
         toast({
           title: t('common.success'),
-          description: t('generator.messages.generationComplete')
+          description: `Successfully generated ${cards.length} cards`
         })
       } else {
-        throw new Error('Generation failed')
+        const errData = await response.json().catch(() => ({}))
+        console.error('API error:', response.status, errData)
+        throw new Error(errData.message || `API error: ${response.status}`)
       }
     } catch (error: any) {
       // Fallback to client-side generation if API fails
+      console.warn('API generation failed, using client-side fallback:', error)
       const cards: GeneratedCard[] = []
       const brands = new Set<string>()
 

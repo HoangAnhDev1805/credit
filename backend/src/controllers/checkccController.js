@@ -277,3 +277,68 @@ async function handleUpdateStatus(req, res, p) {
     });
   }
 }
+
+// Handle LoaiDV=2 from frontend: Receive result from external sender
+exports.receiveResult = async (req, res) => {
+  try {
+    // Require authentication
+    if (!req.user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Unauthorized - JWT token required' 
+      });
+    }
+
+    const { loaiDV, result } = req.body;
+
+    // Validate loaiDV=2
+    if (loaiDV !== 2) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid loaiDV. Must be 2 (receive mode)' 
+      });
+    }
+
+    // Parse result - can be JSON string or object
+    let parsedResult = result;
+    if (typeof result === 'string') {
+      try {
+        parsedResult = JSON.parse(result);
+      } catch (e) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid JSON in result field' 
+        });
+      }
+    }
+
+    logger.info(`Received result from user ${req.user.id}:`, parsedResult);
+
+    // Save to CheckSession or similar for tracking
+    const checkSession = new CheckSession({
+      userId: req.user.id,
+      type: 'receive_result',
+      loaiDV: 2,
+      payload: parsedResult,
+      receivedAt: new Date()
+    });
+    
+    await checkSession.save();
+
+    return res.json({ 
+      success: true, 
+      message: 'Result received and logged', 
+      data: {
+        sessionId: checkSession._id,
+        receivedAt: checkSession.receivedAt
+      }
+    });
+  } catch (err) {
+    logger.error('Receive result error:', err);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to receive result',
+      error: err.message 
+    });
+  }
+}

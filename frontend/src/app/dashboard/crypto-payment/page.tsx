@@ -78,7 +78,17 @@ export default function CryptoPaymentPage() {
   const [cryptoUsdPrices, setCryptoUsdPrices] = useState<Record<string, number> | null>(null)
 
   useEffect(() => {
-    const loadEnabled = async () => {
+    // Set token first, wait a bit for it to settle, then load config
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : ''
+    if (token) {
+      apiClient.setToken(token)
+      console.log('[CryptoPayment] Token set from localStorage:', token.substring(0, 20) + '...')
+    } else {
+      console.warn('[CryptoPayment] No token found in localStorage')
+    }
+
+    // Load configuration including enabled coins and packages
+    const loadConfig = async () => {
       try {
         // Load enabled coins & crypto prices from public config
         const resp = await apiClient.getPublicConfig()
@@ -105,26 +115,23 @@ export default function CryptoPaymentPage() {
             popular: pkg.popular || false,
             savings: pkg.savings || (pkg.popular ? '10%' : '')
           }))
+
           setCreditPackages(creditPackages)
           if (creditPackages.length > 0) {
-            setSelectedPackage(creditPackages.find((p: any) => p.popular) || creditPackages[0])
+            setSelectedPackage(creditPackages[0])
           }
         }
-      } catch (e) {
-        setEnabledCoins(null)
-        // Fallback packages
-        const fallbackPackages = [
-          { id: '1', credits: 100, price: 10, bonus: 0, popular: false, savings: '' },
-          { id: '2', credits: 500, price: 45, bonus: 50, popular: true, savings: '10%' },
-          { id: '3', credits: 1000, price: 80, bonus: 200, popular: false, savings: '20%' },
-          { id: '4', credits: 2000, price: 150, bonus: 500, popular: false, savings: '25%' },
-          { id: '5', credits: 5000, price: 350, bonus: 1500, popular: false, savings: '30%' }
-        ]
-        setCreditPackages(fallbackPackages)
-        setSelectedPackage(fallbackPackages[1])
+      } catch (error) {
+        console.error('[CryptoPayment] Failed to load config:', error)
       }
     }
-    loadEnabled()
+
+    // Small delay to ensure token interceptor is ready
+    const timer = setTimeout(() => {
+      loadConfig()
+    }, 100)
+
+    return () => clearTimeout(timer)
   }, [])
 
   const availableOptions = enabledCoins ? cryptoOptions.filter((o) => enabledCoins[o.value]) : cryptoOptions
@@ -229,6 +236,15 @@ export default function CryptoPaymentPage() {
 
     setIsLoading(true);
     try {
+      // Token is already set in apiClient from localStorage
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      console.log('[HandleCreatePayment] Making request with token');
+      console.log('[HandleCreatePayment] Payload:', { amount, coin: selectedCoin });
+
       const response = await apiClient.post('/payments/cryptapi/create-address', {
         amount,
         coin: selectedCoin,
@@ -251,11 +267,12 @@ export default function CryptoPaymentPage() {
         });
       }
     } catch (error: any) {
-      console.error('Create payment error:', error);
-      const errorMessage = error.response?.data?.message || 'Lỗi tạo thanh toán';
+      console.error('[HandleCreatePayment] Full error:', error);
+      console.error('[HandleCreatePayment] Response:', error.response?.data);
+      const errorMessage = error.response?.data?.message || error.message || 'Lỗi tạo thanh toán';
       toast({
         title: t('cryptoPayment.toasts.errorTitle'),
-        description: errorMessage || t('cryptoPayment.toasts.createError'),
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -293,19 +310,19 @@ export default function CryptoPaymentPage() {
     const IconComponent = selectedCrypto?.icon || Bitcoin;
 
     return (
-      <div className="container mx-auto p-6 max-w-4xl">
+      <div className="container mx-auto p-4 sm:p-6 max-w-4xl">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2">{t('cryptoPayment.payTitle')}</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t('cryptoPayment.payTitle')}</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             {t('cryptoPayment.payDescription', { credits: getCredits().toString() })}
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
           {/* Payment Info */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                 <IconComponent className={`h-5 w-5 ${selectedCrypto?.color}`} />
                 {t('cryptoPayment.paymentInfo')}
               </CardTitle>
@@ -316,7 +333,7 @@ export default function CryptoPaymentPage() {
             <CardContent className="space-y-4">
               {/* Status */}
               <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                <span className="text-sm font-medium">{t('cryptoPayment.status')}</span>
+                <span className="text-xs sm:text-sm font-medium">{t('cryptoPayment.status')}</span>
                 <Badge variant={orderStatus === 'approved' ? 'default' : orderStatus === 'pending' ? 'secondary' : 'destructive'}>
                   {orderStatus === 'approved' ? t('cryptoPayment.statusPaid') :
                    orderStatus === 'pending' ? t('cryptoPayment.statusPending') : orderStatus}
@@ -325,12 +342,12 @@ export default function CryptoPaymentPage() {
 
               {/* Countdown */}
               {timeLeft > 0 && (
-                <div className="flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-950 rounded-lg">
-                  <span className="text-sm font-medium flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-orange-50 dark:bg-orange-950 rounded-lg gap-2">
+                  <span className="text-xs sm:text-sm font-medium flex items-center gap-2">
                     <Clock className="h-4 w-4" />
                     {t('cryptoPayment.timeLeft')}
                   </span>
-                  <span className="font-mono text-orange-600 dark:text-orange-400">
+                  <span className="font-mono text-orange-600 dark:text-orange-400 text-sm">
                     {formatTime(timeLeft)}
                   </span>
                 </div>
@@ -338,20 +355,20 @@ export default function CryptoPaymentPage() {
 
               {/* Address */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">
+                <label className="text-xs sm:text-sm font-medium">
                   {t('cryptoPayment.receiveAddress', { coin: paymentData.coin.toUpperCase() })}
                 </label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-col sm:flex-row">
                   <Input
                     value={paymentData.address_in}
                     readOnly
-                    className="font-mono text-xs"
+                    className="font-mono text-xs order-2 sm:order-1"
                   />
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => copyToClipboard(paymentData.address_in)}
-                    className="shrink-0"
+                    className="shrink-0 order-1 sm:order-2"
                   >
                     {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </Button>
@@ -359,30 +376,30 @@ export default function CryptoPaymentPage() {
               </div>
 
               {/* Amount */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">{t('cryptoPayment.amountUSD')}</label>
-                  <Input value={`$${paymentData.amount}`} readOnly />
+                  <label className="text-xs sm:text-sm font-medium">{t('cryptoPayment.amountUSD')}</label>
+                  <Input value={`$${paymentData.amount}`} readOnly className="text-xs sm:text-sm" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">{t('cryptoPayment.creditsReceive')}</label>
-                  <Input value={`${getCredits()} credits`} readOnly />
+                  <label className="text-xs sm:text-sm font-medium">{t('cryptoPayment.creditsReceive')}</label>
+                  <Input value={`${getCredits()} credits`} readOnly className="text-xs sm:text-sm" />
                 </div>
               </div>
 
               {/* Minimum */}
               <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                <p className="text-sm text-blue-800 dark:text-blue-200">
+                <p className="text-xs sm:text-sm text-blue-800 dark:text-blue-200">
                   <strong>{t('cryptoPayment.minimumAmount')}</strong> {paymentData.minimum_transaction_coin} {paymentData.coin.toUpperCase()}
                 </p>
               </div>
 
               {/* Instructions */}
               <div className="p-3 bg-muted rounded-lg">
-                <p className="text-sm">{paymentData.instructions}</p>
+                <p className="text-xs sm:text-sm">{paymentData.instructions}</p>
               </div>
 
-              <Button onClick={resetPayment} variant="outline" className="w-full">
+              <Button onClick={resetPayment} variant="outline" className="w-full text-xs sm:text-sm">
                 <ArrowRight className="h-4 w-4 mr-2" />
                 {t('cryptoPayment.newPayment')}
               </Button>
@@ -392,34 +409,34 @@ export default function CryptoPaymentPage() {
           {/* QR Code */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                 <QrCode className="h-5 w-5" />
                 {t('cryptoPayment.qrCode')}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 {t('cryptoPayment.qrDesc')}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center space-y-4">
               {paymentData.qr_code_base64 ? (
-                <div className="p-4 bg-white rounded-lg">
+                <div className="p-2 sm:p-4 bg-white rounded-lg w-full flex justify-center">
                   <img
                     src={`data:image/png;base64,${paymentData.qr_code_base64}`}
                     alt="QR Code"
-                    className="w-64 h-64"
+                    className="w-40 h-40 sm:w-64 sm:h-64"
                   />
                 </div>
               ) : (
-                <div className="w-64 h-64 bg-muted rounded-lg flex items-center justify-center">
-                  <p className="text-muted-foreground">QR Code không khả dụng</p>
+                <div className="w-40 h-40 sm:w-64 sm:h-64 bg-muted rounded-lg flex items-center justify-center">
+                  <p className="text-xs sm:text-sm text-muted-foreground">QR Code không khả dụng</p>
                 </div>
               )}
 
-              <div className="text-center space-y-2">
-                <p className="text-sm text-muted-foreground">
+              <div className="text-center space-y-2 w-full">
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   {t('cryptoPayment.scanWithWallet')}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground break-all">
                   {t('cryptoPayment.orderId')} {paymentData.orderId}
                 </p>
               </div>
@@ -433,17 +450,17 @@ export default function CryptoPaymentPage() {
   // Show loading state while packages are being loaded
   if (!selectedPackage || creditPackages.length === 0) {
     return (
-      <div className="container mx-auto p-6 max-w-6xl">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">{t('cryptoPayment.title')}</h1>
-          <p className="text-muted-foreground">
+      <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t('cryptoPayment.title')}</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             {t('cryptoPayment.subtitle')}
           </p>
         </div>
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Đang tải gói credit...</p>
+            <p className="text-sm sm:text-base text-muted-foreground">Đang tải gói credit...</p>
           </div>
         </div>
       </div>
@@ -451,34 +468,34 @@ export default function CryptoPaymentPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-6xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">{t('cryptoPayment.title')}</h1>
-        <p className="text-muted-foreground">
+    <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t('cryptoPayment.title')}</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           {t('cryptoPayment.subtitle')}
         </p>
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-3">
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
         {/* Credit Packages */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                 <Gift className="h-5 w-5" />
                 {t('cryptoPayment.choosePackage')}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 {t('cryptoPayment.choosePackageDesc')}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Package Selection */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                 {creditPackages.map((pkg) => (
                   <div
                     key={pkg.id}
-                    className={`relative p-4 border rounded-lg cursor-pointer transition-all ${
+                    className={`relative p-3 sm:p-4 border rounded-lg cursor-pointer transition-all ${
                       selectedPackage?.id === pkg.id && !isCustom
                         ? 'border-primary bg-primary/5'
                         : 'border-border hover:border-primary/50'
@@ -496,14 +513,14 @@ export default function CryptoPaymentPage() {
                     )}
 
                     <div className="text-center space-y-2">
-                      <div className="text-2xl font-bold">{pkg.credits}</div>
-                      <div className="text-sm text-muted-foreground">Credits</div>
+                      <div className="text-lg sm:text-2xl font-bold">{pkg.credits}</div>
+                      <div className="text-xs sm:text-sm text-muted-foreground">Credits</div>
                       {pkg.bonus > 0 && (
-                        <div className="text-sm text-green-600 font-medium">
+                        <div className="text-xs sm:text-sm text-green-600 font-medium">
                           +{pkg.bonus} bonus
                         </div>
                       )}
-                      <div className="text-xl font-bold">${pkg.price}</div>
+                      <div className="text-base sm:text-xl font-bold">${pkg.price}</div>
                       {pkg.savings && (
                         <Badge variant="secondary" className="text-xs">
                           {t('cryptoPayment.savings', { percent: pkg.savings })}
@@ -524,7 +541,7 @@ export default function CryptoPaymentPage() {
                     onChange={(e) => setIsCustom(e.target.checked)}
                     className="rounded"
                   />
-                  <label htmlFor="custom" className="text-sm font-medium">
+                  <label htmlFor="custom" className="text-xs sm:text-sm font-medium">
                     {t('cryptoPayment.customAmount')}
                   </label>
                 </div>
@@ -538,9 +555,10 @@ export default function CryptoPaymentPage() {
                       onChange={(e) => setCustomAmount(e.target.value)}
                       min="1"
                       step="0.01"
+                      className="text-xs sm:text-sm"
                     />
                     {customAmount && (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs sm:text-sm text-muted-foreground">
                         {t('cryptoPayment.willReceive', { credits: Math.floor((parseFloat(customAmount) || 0) * conversionRate).toString() })}
                       </p>
                     )}
@@ -556,26 +574,26 @@ export default function CryptoPaymentPage() {
           {/* Crypto Selection */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                 <Coins className="h-5 w-5" />
                 {t('cryptoPayment.chooseCrypto')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2 sm:space-y-3">
               {availableOptions.map((crypto) => {
                 const IconComponent = crypto.icon;
                 return (
                   <div
                     key={crypto.value}
-                    className={`flex items-center space-x-3 p-3 border rounded-lg cursor-pointer transition-all ${
+                    className={`flex items-center space-x-3 p-2 sm:p-3 border rounded-lg cursor-pointer transition-all ${
                       selectedCoin === crypto.value
                         ? 'border-primary bg-primary/5'
                         : 'border-border hover:border-primary/50'
                     }`}
                     onClick={() => setSelectedCoin(crypto.value)}
                   >
-                    <IconComponent className={`h-5 w-5 ${crypto.color}`} />
-                    <span className="text-sm font-medium">{crypto.label}</span>
+                    <IconComponent className={`h-4 w-4 sm:h-5 sm:w-5 ${crypto.color}`} />
+                    <span className="text-xs sm:text-sm font-medium">{crypto.label}</span>
                   </div>
                 );
               })}
@@ -585,24 +603,24 @@ export default function CryptoPaymentPage() {
           {/* Summary */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                 <TrendingUp className="h-5 w-5" />
                 {t('cryptoPayment.summary')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between text-xs sm:text-sm">
                   <span>{t('cryptoPayment.amount')}</span>
                   <span className="font-medium">${getAmount()}</span>
                 </div>
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between text-xs sm:text-sm">
                   <span>{t('cryptoPayment.creditsReceive')}</span>
                   <span className="font-medium">{getCredits()} credits</span>
                 </div>
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between text-xs sm:text-sm">
                   <span>{t('cryptoPayment.method')}</span>
-                  <span className="font-medium">
+                  <span className="font-medium text-right">
                     {cryptoOptions.find(c => c.value === selectedCoin)?.label}
                   </span>
                 </div>
@@ -613,7 +631,7 @@ export default function CryptoPaymentPage() {
                   if (price > 0 && amt > 0) {
                     const coinAmt = amt / price;
                     return (
-                      <div className="flex justify-between text-sm text-blue-700 dark:text-blue-300">
+                      <div className="flex justify-between text-xs sm:text-sm text-blue-700 dark:text-blue-300">
                         <span>{t('cryptoPayment.estimatedCryptoAmount', { coin: shortName.toUpperCase() })}</span>
                         <span className="font-medium">{coinAmt.toFixed(8)} {shortName.toUpperCase()}</span>
                       </div>
@@ -624,7 +642,7 @@ export default function CryptoPaymentPage() {
               </div>
 
               <div className="border-t pt-4">
-                <div className="flex justify-between font-medium">
+                <div className="flex justify-between font-medium text-xs sm:text-sm">
                   <span>{t('cryptoPayment.total')}</span>
                   <span>${getAmount()}</span>
                 </div>
@@ -632,8 +650,8 @@ export default function CryptoPaymentPage() {
 
               <Button
                 onClick={handleCreatePayment}
-                disabled={isLoading || getAmount() < 1}
-                className="w-full"
+                disabled={isLoading || !selectedPackage || !selectedCoin || getAmount() < 1}
+                className="w-full text-xs sm:text-sm"
                 size="lg"
               >
                 {isLoading ? (
@@ -654,16 +672,16 @@ export default function CryptoPaymentPage() {
           {/* User Balance */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                 <DollarSign className="h-5 w-5" />
                 {t('cryptoPayment.currentBalance')}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-primary">
+              <div className="text-xl sm:text-2xl font-bold text-primary">
                 {user?.balance || 0} credits
               </div>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
                 {t('cryptoPayment.balanceNotice')}
               </p>
             </CardContent>

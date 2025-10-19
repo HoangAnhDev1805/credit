@@ -54,18 +54,33 @@ export default function LoginPage() {
       })
       router.push('/dashboard')
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || error.message
-      let translatedMessage = t('auth.loginError')
+      const errorMessage = error.response?.data?.message || error.message || 'Login failed'
       
-      if (errorMessage?.includes('Too many authentication attempts')) {
-        translatedMessage = t('auth.tooManyAttempts')
-      } else if (errorMessage?.includes('Invalid') || errorMessage?.includes('incorrect')) {
-        translatedMessage = t('auth.invalidCredentials')
+      // Map backend messages to display messages (backend already sends in English)
+      let displayMessage = errorMessage
+      
+      // If backend message is one of our known messages, use it directly
+      if (errorMessage.includes('Username or email does not exist') ||
+          errorMessage.includes('Username or password is incorrect') ||
+          errorMessage.includes('Your account has been blocked') ||
+          errorMessage.includes('Too many')) {
+        displayMessage = errorMessage
+      } else {
+        // Fallback mapping for other messages
+        if (errorMessage.toLowerCase().includes('not found') || errorMessage.toLowerCase().includes('does not exist')) {
+          displayMessage = 'Username or email does not exist'
+        } else if (errorMessage.toLowerCase().includes('incorrect') || errorMessage.toLowerCase().includes('password')) {
+          displayMessage = 'Username or password is incorrect'
+        } else if (errorMessage.toLowerCase().includes('too many') || errorMessage.toLowerCase().includes('attempts')) {
+          displayMessage = 'Too many login attempts. Please try again later'
+        } else if (errorMessage.toLowerCase().includes('blocked') || errorMessage.toLowerCase().includes('suspended')) {
+          displayMessage = 'Your account has been blocked. Please contact support'
+        }
       }
       
       toast({
-        title: t('auth.loginError'),
-        description: translatedMessage,
+        title: 'Login Error',
+        description: displayMessage,
         variant: "destructive"
       })
     } finally {

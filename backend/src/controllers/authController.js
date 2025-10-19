@@ -21,16 +21,19 @@ const register = async (req, res, next) => {
 
     const { username, email, password } = req.body;
 
-    // Check if user exists
+    // Check if user exists (username will be lowercased by schema)
     const existingUser = await User.findOne({
-      $or: [{ email }, { username }]
+      $or: [
+        { email },
+        { username: username.toLowerCase() }
+      ]
     });
 
     if (existingUser) {
       return res.status(400).json({
         success: false,
         message: existingUser.email === email ? 
-          'Email đã được sử dụng' : 'Tên đăng nhập đã được sử dụng'
+          'Email is already in use' : 'Username is already in use'
       });
     }
 
@@ -57,7 +60,7 @@ const register = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Đăng ký thành công',
+      message: 'Registration successful',
       data: {
         user: {
           id: user._id,
@@ -94,18 +97,18 @@ const login = async (req, res, next) => {
 
     const { login: loginField, password } = req.body;
 
-    // Find user by username or email
+    // Find user by email or username (both stored lowercase)
     const user = await User.findOne({
       $or: [
-        { email: loginField },
-        { username: loginField }
+        { email: loginField.toLowerCase() },
+        { username: loginField.toLowerCase() }
       ]
     }).select('+password');
 
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Thông tin đăng nhập không chính xác'
+        message: 'Username or email does not exist'
       });
     }
 
@@ -113,7 +116,7 @@ const login = async (req, res, next) => {
     if (user.status !== 'active') {
       return res.status(401).json({
         success: false,
-        message: 'Tài khoản đã bị khóa hoặc chưa được kích hoạt'
+        message: 'Your account has been blocked or is not activated'
       });
     }
 
@@ -122,7 +125,7 @@ const login = async (req, res, next) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: 'Thông tin đăng nhập không chính xác'
+        message: 'Username or password is incorrect'
       });
     }
 
