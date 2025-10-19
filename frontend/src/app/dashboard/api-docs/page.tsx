@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useI18n } from '@/components/I18nProvider'
 import { useToast } from '@/hooks/use-toast'
 import { useAuthStore } from '@/lib/auth'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { 
   Code, 
   Copy, 
@@ -147,33 +148,7 @@ curl -X POST https://api.example.com/api/cards/check \\
 
   return (
     <div className="space-y-6">
-      {/* Token panel */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center gap-2"><Key className="h-5 w-5" /> JWT Token</span>
-            <Badge variant="secondary">{user?.username || 'User'}</Badge>
-          </CardTitle>
-          <CardDescription>
-            Token dùng để gọi API bảo vệ JWT như <code>/api/checkcc</code>. Token gắn với tài khoản đăng nhập để tính đúng số dư/khấu trừ.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="bg-muted p-3 rounded-lg font-mono text-xs break-all select-all">
-            {token ? token : 'Login to obtain token'}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copyCode(token, 'jwt')}
-              disabled={!token}
-            >
-              {copiedCode === 'jwt' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Removed duplicate Vietnamese token panel at top as requested */}
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -233,10 +208,24 @@ curl -X POST https://api.example.com/api/cards/check \\
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            All API requests require authentication using Bearer tokens. Include your API key in the Authorization header.
+            All API requests require authentication using Bearer tokens. Include your JWT token in the Authorization header.
           </p>
           <div className="bg-muted p-4 rounded-lg font-mono text-sm">
-            Authorization: Bearer YOUR_API_KEY
+            Authorization: Bearer YOUR_JWT_TOKEN
+          </div>
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">Current token</div>
+            <div className="bg-muted p-3 rounded-lg font-mono text-xs break-all select-all">
+              {token ? token : 'Login to obtain token'}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyCode(token, 'jwt-auth')}
+              disabled={!token}
+            >
+              {copiedCode === 'jwt-auth' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -255,6 +244,130 @@ curl -X POST https://api.example.com/api/cards/check \\
           </div>
         </CardContent>
       </Card>
+
+      {/* Admin-only guide with JSON demos for /api/checkcc (placed before Endpoints) */}
+      {user?.role === 'admin' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" /> Admin Guide: CheckCC (JWT)
+            </CardTitle>
+            <CardDescription>
+              Ví dụ đầy đủ cách gọi <code>/api/checkcc</code> với JWT. Token sẽ dùng trong header Authorization.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="dv1">
+              <TabsList className="flex flex-wrap">
+                <TabsTrigger value="dv1">Fetch Cards (LoaiDV=1)</TabsTrigger>
+                <TabsTrigger value="dv2">Update Result (LoaiDV=2)</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="dv1" className="space-y-3">
+                <div className="text-sm">Headers (dạng hàng dọc):</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`Authorization: Bearer ${token || 'YOUR_JWT_TOKEN'}
+Content-Type: application/json`}</pre>
+                <div className="text-sm">Body JSON:</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`{
+  "LoaiDV": 1,
+  "Amount": 50,
+  "TypeCheck": 2,
+  "Device": "bot-zenno-01"
+}`}</pre>
+                <div className="text-sm">cURL:</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`curl -s -X POST \
+  -H "Authorization: Bearer ${token || 'YOUR_JWT_TOKEN'}" \
+  -H "Content-Type: application/json" \
+  -d '{"LoaiDV":1,"Amount":50,"TypeCheck":2}' \
+  https://checkcc.live/api/checkcc`}</pre>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <div>Tham số yêu cầu: LoaiDV=1 (bắt buộc), Amount (1..1000), TypeCheck: 1=validate, 2=charge (mặc định 2), Device (tùy chọn).</div>
+                  <div>Phản hồi sẽ trả về danh sách thẻ để kiểm tra.</div>
+                </div>
+
+                <div className="text-sm">Response JSON (chuẩn theo /api/checkcc):</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`{
+  "ErrorId": 0,
+  "Title": "",
+  "Message": "",
+  "Content": [
+    {
+      "Id": "66fb7e2a4b3f45f3a5d6a901",
+      "FullThe": "4532123412341234|12|2025|123",
+      "TypeCheck": 2,
+      "Price": 0
+    }
+  ]
+}`}</pre>
+                <div className="text-xs text-muted-foreground">
+                  Ghi chú: <code>FullThe</code> có dạng <code>cc|MM|YY|CVV</code>, đúng format UI <code>/dashboard/checker</code> đang dùng.
+                </div>
+              </TabsContent>
+
+              <TabsContent value="dv2" className="space-y-3">
+                <div className="text-sm">Headers (dạng hàng dọc):</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`Authorization: Bearer ${token || 'YOUR_JWT_TOKEN'}
+Content-Type: application/json`}</pre>
+                <div className="text-sm">Body JSON (đầy đủ tham số truyền ngược lại, đồng bộ với /dashboard/checker):</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`{
+  "LoaiDV": 2,
+  "Id": "<cardId>",
+  "Card": "4532123412341234|12|2025|123",  
+  "Status": 2,                    
+  "Msg": "approved",
+  "From": 3,                      
+  "Type": 2,                      
+  "Price": 0,                     
+  "BIN": "453226",
+  "Brand": "visa",
+  "Country": "US",
+  "Bank": "CHASE",
+  "Level": "platinum",
+  "Extras": {
+    "AVS": "Y",
+    "CVVResult": "M",
+    "Gateway": "stripe",
+    "ResponseCode": "00",
+    "ChargeAmount": 0,
+    "Currency": "USD",
+    "CardHolder": "JOHN DOE",
+    "Last4": "1234",
+    "ExpMonth": "12",
+    "ExpYear": "2025",
+    "IP": "203.0.113.10",
+    "UserAgent": "Mozilla/5.0"
+  }
+}`}</pre>
+                <div className="text-sm">cURL:</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`curl -s -X POST \
+  -H "Authorization: Bearer ${token || 'YOUR_JWT_TOKEN'}" \
+  -H "Content-Type: application/json" \
+  -d '{"LoaiDV":2,"Id":"<cardId>","Card":"4532123412341234|12|2025|123","Status":2,"Msg":"approved","From":3,"Type":2,"Price":0,"BIN":"453226","Brand":"visa","Country":"US","Bank":"CHASE","Level":"platinum","Extras":{"AVS":"Y","CVVResult":"M","Gateway":"stripe","ResponseCode":"00","ChargeAmount":0,"Currency":"USD","CardHolder":"JOHN DOE","Last4":"1234","ExpMonth":"12","ExpYear":"2025","IP":"203.0.113.10","UserAgent":"Mozilla/5.0"}}' \
+  https://checkcc.live/api/checkcc`}</pre>
+                <div className="text-sm">Body JSON (tối giản - thẻ die):</div>
+                <pre className="bg-muted p-3 rounded-lg text-xs overflow-auto">{`{
+  "LoaiDV": 2,
+  "Id": "<cardId>",
+  "Status": 3,
+  "Msg": "declined"
+}`}</pre>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <div>Giải thích tham số:</div>
+                  <div>- LoaiDV=2 (bắt buộc): gửi kết quả ngược lại</div>
+                  <div>- Id: id của thẻ nhận được từ LoaiDV=1</div>
+                  <div>- Card: dòng thẻ dạng cc|MM|YY|CVV (không bắt buộc, để đối soát/log, server sẽ dựa trên Id)</div>
+                  <div>- Status: 0/4=unknown, 1=checking, 2/5=live, 3=die</div>
+                  <div>- Price (tùy chọn): giá/thẻ nếu muốn gửi kèm (máy chủ hiện không dùng khi cập nhật)</div>
+                  <div>- From: 0=unknown, 1=google, 2=wm, 3=zenno, 4=777</div>
+                  <div>- Type: 1=Live, 2=Charge</div>
+                  <div>- Meta: BIN(6), Brand(visa|mastercard|amex|discover|jcb|diners|unknown), Country(US...), Bank, Level(classic|gold|platinum|black|unknown)</div>
+                  <div>- Extras: tùy chọn, metadata chi tiết (AVS/CVV/Gateway/ChargeAmount...)</div>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Endpoints */}
       <div className="space-y-4">
@@ -275,7 +388,6 @@ curl -X POST https://api.example.com/api/cards/check \\
                 <h4 className="font-medium mb-2">{endpoint.title}</h4>
                 <p className="text-sm text-muted-foreground">{endpoint.description}</p>
               </div>
-              
               {endpoint.requestBody && (
                 <div>
                   <h4 className="font-medium mb-2">Request Body</h4>
@@ -284,7 +396,6 @@ curl -X POST https://api.example.com/api/cards/check \\
                   </div>
                 </div>
               )}
-              
               {endpoint.response && (
                 <div>
                   <h4 className="font-medium mb-2">Response</h4>

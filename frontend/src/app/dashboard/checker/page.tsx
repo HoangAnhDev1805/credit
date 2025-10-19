@@ -30,6 +30,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useI18n } from "@/components/I18nProvider"
+import { useAuthStore } from "@/lib/auth"
 
 interface CheckResult {
   id: string
@@ -42,6 +43,7 @@ interface CheckResult {
 export default function CheckerPage() {
   const { toast } = useToast()
   const { t } = useI18n()
+  const { user } = useAuthStore()
 
   // Input & session
   const [cardsInput, setCardsInput] = useState("")
@@ -92,9 +94,33 @@ export default function CheckerPage() {
       } catch {}
 
       try {
-        // Fetch public pricing tiers
-        const tiersResp = await apiClient.get('/config/pricing-tiers').catch(() => null as any)
-        const tiers = (tiersResp as any)?.data?.data?.tiers
+        // Ensure token set if available (for admin route)
+        try {
+          const t = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : ''
+          if (t) apiClient.setToken(t)
+        } catch {}
+
+        // Prefer admin tiers when authenticated (reflects DB exactly), fallback to public tiers
+        let tiers: any[] | null = null
+        if (user) {
+          const adminResp = await apiClient.get('/admin/pricing-tiers').catch(() => null as any)
+          const adminTiers = (adminResp as any)?.data?.data?.tiers
+          if (Array.isArray(adminTiers)) {
+            tiers = adminTiers.map((t: any) => ({
+              min: t.minCards,
+              max: t.maxCards === null ? null : t.maxCards,
+              pricePerCard: Number(t.pricePerCard || 0),
+              total: t.maxCards === null ? null : Math.round(Number(t.pricePerCard || 0) * Number(t.maxCards))
+            }))
+          }
+        }
+
+        if (!tiers) {
+          const tiersResp = await apiClient.get('/config/pricing-tiers').catch(() => null as any)
+          const publicTiers = (tiersResp as any)?.data?.data?.tiers
+          if (Array.isArray(publicTiers)) tiers = publicTiers
+        }
+
         if (Array.isArray(tiers)) setPricingTiers(tiers)
       } catch {}
     })()
