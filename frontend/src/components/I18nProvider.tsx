@@ -69,14 +69,18 @@ const translations = {
       loginNow: 'Login now',
       logoutSuccess: 'Logout successful',
       logoutError: 'Logout failed',
+      registerSuccess: 'Registration successful!',
+      registerError: 'Registration failed',
       validation: {
         emailRequired: 'Please enter complete information',
+        allFieldsRequired: 'Please fill in all required fields',
         usernameRequired: 'Username is required',
         passwordRequired: 'Password is required',
         confirmPasswordRequired: 'Confirm password is required',
         passwordMismatch: 'Passwords do not match',
         invalidEmail: 'Invalid email format',
-        passwordTooShort: 'Password must be at least 8 characters',
+        passwordTooShort: 'Password must be at least 6 characters',
+        passwordNotStrong: 'Password is not strong enough',
         usernameExists: 'Username already exists',
         emailExists: 'Email already exists'
       }
@@ -479,14 +483,18 @@ const translations = {
       loginNow: 'Đăng nhập ngay',
       logoutSuccess: 'Đăng xuất thành công',
       logoutError: 'Đăng xuất thất bại',
+      registerSuccess: 'Đăng ký thành công!',
+      registerError: 'Đăng ký thất bại',
       validation: {
         emailRequired: 'Vui lòng nhập đầy đủ thông tin',
+        allFieldsRequired: 'Vui lòng nhập đầy đủ thông tin',
         usernameRequired: 'Tên đăng nhập là bắt buộc',
         passwordRequired: 'Mật khẩu là bắt buộc',
         confirmPasswordRequired: 'Xác nhận mật khẩu là bắt buộc',
         passwordMismatch: 'Mật khẩu không khớp',
         invalidEmail: 'Định dạng email không hợp lệ',
-        passwordTooShort: 'Mật khẩu phải có ít nhất 8 ký tự',
+        passwordTooShort: 'Mật khẩu phải có ít nhất 6 ký tự',
+        passwordNotStrong: 'Mật khẩu không đủ mạnh',
         usernameExists: 'Tên đăng nhập đã tồn tại',
         emailExists: 'Email đã tồn tại'
       }

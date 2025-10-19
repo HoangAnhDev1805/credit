@@ -55,8 +55,8 @@ export default function RegisterPage() {
     // Validation
     if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword) {
       toast({
-        title: "Lỗi",
-        description: "Vui lòng nhập đầy đủ thông tin",
+        title: t('common.error'),
+        description: t('auth.validation.allFieldsRequired'),
         variant: "destructive"
       })
       return
@@ -83,7 +83,7 @@ export default function RegisterPage() {
     if (!passwordValidation.isValid) {
       toast({
         title: t('common.error'),
-        description: language === 'en' ? 'Password is not strong enough' : 'Mật khẩu không đủ mạnh',
+        description: t('auth.validation.passwordNotStrong'),
         variant: 'destructive'
       })
       return
@@ -94,8 +94,8 @@ export default function RegisterPage() {
     try {
       await register(formData.username, formData.email, formData.password, formData.confirmPassword)
       toast({
-        title: "Thành công",
-        description: "Đăng ký thành công!"
+        title: t('common.success'),
+        description: t('auth.registerSuccess')
       })
       router.push('/dashboard')
     } catch (error: any) {
@@ -104,7 +104,7 @@ export default function RegisterPage() {
         ? (backend.errors[0]?.message || backend.errors[0]?.msg || backend.message)
         : (backend?.message || error.message || 'Đăng ký thất bại')
       toast({
-        title: "Lỗi đăng ký",
+        title: t('auth.registerError'),
         description: detail,
         variant: "destructive"
       })
