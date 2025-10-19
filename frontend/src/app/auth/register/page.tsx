@@ -18,7 +18,7 @@ export default function RegisterPage() {
   const router = useRouter()
   const { register, isAuthenticated, isLoading } = useAuthStore()
   const { toast } = useToast()
-  const { t } = useI18n()
+  const { t, language, showLanguageSwitcher } = useI18n() as any
   
   const [formData, setFormData] = useState({
     username: '',
@@ -43,7 +43,9 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (formData.password) {
-      setPasswordValidation(validatePassword(formData.password))
+      // Choose feedback language based on current UI language
+      const lang = (language === 'en' ? 'en' : 'vi') as 'en' | 'vi'
+      setPasswordValidation(validatePassword(formData.password, lang))
     }
   }, [formData.password])
 
@@ -62,27 +64,27 @@ export default function RegisterPage() {
 
     if (!validateEmail(formData.email)) {
       toast({
-        title: "Lỗi",
-        description: "Email không hợp lệ",
-        variant: "destructive"
+        title: t('common.error'),
+        description: language === 'en' ? 'Invalid email address' : 'Email không hợp lệ',
+        variant: 'destructive'
       })
       return
     }
 
     if (formData.password !== formData.confirmPassword) {
       toast({
-        title: "Lỗi",
-        description: "Mật khẩu xác nhận không khớp",
-        variant: "destructive"
+        title: t('common.error'),
+        description: language === 'en' ? 'Password confirmation does not match' : 'Mật khẩu xác nhận không khớp',
+        variant: 'destructive'
       })
       return
     }
 
     if (!passwordValidation.isValid) {
       toast({
-        title: "Lỗi",
-        description: "Mật khẩu không đủ mạnh",
-        variant: "destructive"
+        title: t('common.error'),
+        description: language === 'en' ? 'Password is not strong enough' : 'Mật khẩu không đủ mạnh',
+        variant: 'destructive'
       })
       return
     }
@@ -90,7 +92,7 @@ export default function RegisterPage() {
     setIsSubmitting(true)
     
     try {
-      await register(formData.username, formData.email, formData.password)
+      await register(formData.username, formData.email, formData.password, formData.confirmPassword)
       toast({
         title: "Thành công",
         description: "Đăng ký thành công!"
@@ -127,7 +129,7 @@ export default function RegisterPage() {
       {/* Header */}
       <div className="absolute top-4 right-4 flex items-center space-x-2">
         <ThemeToggle />
-        <LanguageSwitcher />
+        {showLanguageSwitcher !== false && <LanguageSwitcher />}
       </div>
 
       <div className="min-h-screen flex items-center justify-center p-4">

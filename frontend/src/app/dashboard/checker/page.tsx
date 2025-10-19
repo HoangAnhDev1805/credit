@@ -52,6 +52,7 @@ export default function CheckerPage() {
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
   const [pricePerCard, setPricePerCard] = useState<number>(0)
+  const [pricingTiers, setPricingTiers] = useState<Array<{ min: number; max: number | null; total: number }>>([])
 
   // Stats
   const [stats, setStats] = useState({
@@ -88,6 +89,13 @@ export default function CheckerPage() {
         const me = await apiClient.getMe().catch(() => null as any)
         const user = (me as any)?.data?.data?.user
         if (user?.balance != null) setBalance(user.balance)
+      } catch {}
+
+      try {
+        // Fetch public pricing tiers
+        const tiersResp = await apiClient.get('/config/pricing-tiers').catch(() => null as any)
+        const tiers = (tiersResp as any)?.data?.data?.tiers
+        if (Array.isArray(tiers)) setPricingTiers(tiers)
       } catch {}
     })()
   }, [])
@@ -458,6 +466,40 @@ export default function CheckerPage() {
                   </div>
                 )}
               </div>
+            </CardContent>
+          </UICard>
+
+          {/* Pricing Table (public tiers) */}
+          <UICard>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5" />
+                {t('checker.pricing.title')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pricingTiers.length === 0 ? (
+                <div className="text-sm text-muted-foreground">{t('checker.pricing.loading')}</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {pricingTiers.map((tier, idx) => (
+                    <div key={idx} className="border rounded-lg p-4 space-y-2">
+                      <div className="text-sm text-muted-foreground">
+                        {tier.max ? (
+                          <>
+                            {t('checker.pricing.upTo')} {tier.max.toLocaleString()} {t('checker.pricing.cards')}
+                          </>
+                        ) : (
+                          <>
+                            {t('checker.pricing.upTo')} ∞ {t('checker.pricing.cards')}
+                          </>
+                        )}
+                      </div>
+                      <div className="text-2xl font-bold">${tier.total.toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </UICard>
         </div>

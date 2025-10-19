@@ -9,6 +9,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cryptapi": "node test-cryptapi.js",
+    "db:init": "node src/scripts/initDatabase.js",
+    "db:seed": "node src/scripts/seedData.js",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix"
   },

@@ -185,7 +185,7 @@ export function validateEmail(email: string): boolean {
 }
 
 // Validate password strength
-export function validatePassword(password: string): {
+export function validatePassword(password: string, lang: 'vi' | 'en' = 'vi'): {
   isValid: boolean
   score: number
   feedback: string[]
@@ -196,31 +196,31 @@ export function validatePassword(password: string): {
   if (password.length >= 8) {
     score += 1
   } else {
-    feedback.push('Mật khẩu phải có ít nhất 8 ký tự')
+    feedback.push(lang === 'en' ? 'Password must be at least 8 characters' : 'Mật khẩu phải có ít nhất 8 ký tự')
   }
   
   if (/[a-z]/.test(password)) {
     score += 1
   } else {
-    feedback.push('Mật khẩu phải có ít nhất 1 chữ thường')
+    feedback.push(lang === 'en' ? 'Password must contain at least 1 lowercase letter' : 'Mật khẩu phải có ít nhất 1 chữ thường')
   }
   
   if (/[A-Z]/.test(password)) {
     score += 1
   } else {
-    feedback.push('Mật khẩu phải có ít nhất 1 chữ hoa')
+    feedback.push(lang === 'en' ? 'Password must contain at least 1 uppercase letter' : 'Mật khẩu phải có ít nhất 1 chữ hoa')
   }
   
   if (/\d/.test(password)) {
     score += 1
   } else {
-    feedback.push('Mật khẩu phải có ít nhất 1 số')
+    feedback.push(lang === 'en' ? 'Password must contain at least 1 number' : 'Mật khẩu phải có ít nhất 1 số')
   }
   
   if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
     score += 1
   } else {
-    feedback.push('Mật khẩu phải có ít nhất 1 ký tự đặc biệt')
+    feedback.push(lang === 'en' ? 'Password must contain at least 1 special character' : 'Mật khẩu phải có ít nhất 1 ký tự đặc biệt')
   }
   
   return {

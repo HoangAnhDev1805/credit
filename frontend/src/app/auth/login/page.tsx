@@ -17,7 +17,7 @@ export default function LoginPage() {
   const router = useRouter()
   const { login, isAuthenticated, isLoading } = useAuthStore()
   const { toast } = useToast()
-  const { t } = useI18n()
+  const { t, showLanguageSwitcher } = useI18n() as any
   
   const [formData, setFormData] = useState({
     login: '',
@@ -93,7 +93,7 @@ export default function LoginPage() {
       {/* Header with Language Switcher and Theme Toggle */}
       <div className="absolute top-4 right-4 flex items-center space-x-2">
         <ThemeToggle />
-        <LanguageSwitcher />
+        {showLanguageSwitcher !== false && <LanguageSwitcher />}
       </div>
 
       <div className="min-h-screen flex items-center justify-center p-4">

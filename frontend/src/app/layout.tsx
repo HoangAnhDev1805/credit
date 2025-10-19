@@ -13,7 +13,6 @@ export const metadata: Metadata = {
   description: 'Hệ thống kiểm tra và quản lý thẻ tín dụng chuyên nghiệp với tính năng bảo mật cao',
   keywords: 'credit card, checker, validation, security, payment',
   authors: [{ name: 'Credit Card Checker Team' }],
-  viewport: 'width=device-width, initial-scale=1',
   robots: 'noindex, nofollow', // chặn index trên môi trường này
   icons: {
     // Dùng data URI mặc định để tránh 404; DynamicHead sẽ cập nhật icon thật sau khi tải cấu hình
@@ -22,6 +21,12 @@ export const metadata: Metadata = {
     apple: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2J4LkAAAAASUVORK5CYII=',
   },
 }
+
+// Next.js App Router: viewport must be exported via `export const viewport`
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
 
 export default function RootLayout({
   children,

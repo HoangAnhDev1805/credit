@@ -53,6 +53,9 @@ router.get('/cards', getCards);
 // Payment management routes
 router.get('/payments', getPaymentRequests);
 router.put('/payments/:id', updatePaymentRequest);
+// Alias routes to match frontend expectations
+router.get('/payment-requests', getPaymentRequests);
+router.put('/payment-requests/:id', updatePaymentRequest);
 router.get('/payment-methods', getPaymentMethods);
 router.post('/payment-methods', createPaymentMethod);
 router.put('/payment-methods/:id', updatePaymentMethod);

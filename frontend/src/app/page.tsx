@@ -24,7 +24,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 export default function HomePage() {
   const router = useRouter()
   const { isAuthenticated, checkAuth } = useAuthStore()
-  const { t } = useI18n()
+  const { t, showLanguageSwitcher } = useI18n() as any
 
   useEffect(() => {
     checkAuth()
@@ -88,7 +88,7 @@ export default function HomePage() {
             </div>
             <div className="flex items-center space-x-4">
               <ThemeToggle />
-              <LanguageSwitcher />
+              {showLanguageSwitcher !== false && <LanguageSwitcher />}
               <Link href="/auth/login">
                 <Button variant="ghost">{t('common.login')}</Button>
               </Link>

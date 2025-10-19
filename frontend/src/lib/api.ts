@@ -17,6 +17,7 @@ export interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+  confirmPassword: string;
 }
 
 export interface User {
@@ -114,8 +115,16 @@ class ApiClient {
       base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '') || 'https://checkcc.live';
     }
 
+    // Normalize base to ensure we don't end up with /api/api when env already contains /api
+    let apiBase = base;
+    if (/\/api\/?$/.test(apiBase)) {
+      apiBase = apiBase.replace(/\/?$/, ''); // drop trailing slash only
+    } else {
+      apiBase = `${apiBase}/api`;
+    }
+
     this.client = axios.create({
-      baseURL: `${base}/api`,
+      baseURL: apiBase,
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',

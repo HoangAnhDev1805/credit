@@ -1,12 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
   images: {
     domains: ['localhost', '127.0.0.1', 'checkcc.live', 'www.checkcc.live'],
     unoptimized: false,
   },
   env: {
-    CUSTOM_KEY: process.env.CUSTOM_KEY,
+    // Make optional to avoid build error when not provided
+    CUSTOM_KEY: process.env.CUSTOM_KEY || '',
   },
   async headers() {
     return [

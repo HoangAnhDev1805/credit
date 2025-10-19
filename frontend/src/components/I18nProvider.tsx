@@ -290,11 +290,10 @@ const translations = {
       amount: 'Amount',
       creditsReceive: 'Credits to receive',
       method: 'Method',
-      total: 'Total',
-      estimatedCryptoAmount: 'Est. {{coin}} to pay (based on exchange rate)',
-      estimatedCryptoAmount: 'Estimated crypto to pay (based on exchange rate)',
-
-      creating: 'Creating...',
+  total: 'Total',
+  estimatedCryptoAmount: 'Est. {{coin}} to pay (based on exchange rate)',
+      
+  creating: 'Creating...',
       createAddress: 'Create payment address',
 
       currentBalance: 'Current Balance',

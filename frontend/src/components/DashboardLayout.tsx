@@ -39,12 +39,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname()
   const router = useRouter()
   const { user, logout, checkAuth } = useAuthStore()
-  const { t, showLanguageSwitcher } = useI18n()
+  const { t, showLanguageSwitcher, language } = useI18n() as any
   const { toast } = useToast()
   const [credits, setCredits] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [logoUrl, setLogoUrl] = useState('/logo.svg')
   const [paymentConfig, setPaymentConfig] = useState<any>(null)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -62,7 +63,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     const fetchSiteConfig = async () => {
       try {
         const response = await apiClient.getPublicConfig()
-        const data = (response as any)?.data?.data
+        // getPublicConfig() returns ApiResponse where .data is the configs object
+        const data = (response as any)?.data
         const toAbs = (url?: string) => {
           if (!url) return '/logo.png';
           // Already absolute
@@ -149,12 +151,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   ]
 
-  const sections = [
+  const allSections = [
     { key: 'TOOLS', label: t('dashboard.navigation.sections.tools') },
     { key: 'SHOP', label: t('dashboard.navigation.sections.shop') },
     { key: 'SUPPORT', label: t('dashboard.navigation.sections.support') },
     { key: 'LEGAL', label: t('dashboard.navigation.sections.legal') }
   ]
+  const sections = allSections.filter(sec => navigation.some(item => item.section === sec.key))
 
   const handleLogout = async () => {
     try {
@@ -307,12 +310,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   className="hidden sm:flex border-purple-500 text-purple-600 dark:text-purple-400 hover:bg-purple-500 hover:text-white"
                 >
                   <Shield className="h-4 w-4 mr-2" />
-                  {t('common.language') === 'vi' ? 'Quản trị' : 'Admin Panel'}
+                  {language === 'vi' ? 'Quản trị' : 'Admin Panel'}
                 </Button>
               )}
 
               {/* User Avatar/Info */}
-              <div className="flex items-center space-x-2">
+              <div className="hidden sm:flex items-center space-x-2">
                 {user?.avatar ? (
                   <img
                     src={user.avatar}
@@ -330,7 +333,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </div>
 
               {/* Credits Display */}
-              <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-300">
+              <div className="hidden sm:flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-300">
                 <Coins className="h-4 w-4" />
                 <span className="hidden sm:block">{credits} Credits</span>
                 <span className="sm:hidden">{credits} Cr</span>
@@ -341,18 +344,69 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 variant="ghost"
                 size="icon"
                 onClick={() => router.push('/dashboard/settings')}
-                className="h-8 w-8"
+                className="hidden sm:inline-flex h-8 w-8"
               >
                 <Settings className="h-4 w-4" />
               </Button>
 
               {/* Theme Toggle */}
-              <ThemeToggle />
+              <div className="hidden sm:block">
+                <ThemeToggle />
+              </div>
 
               {/* Language Switcher */}
-              {showLanguageSwitcher !== false && (
-                <LanguageSwitcher />
-              )}
+              <div className="hidden sm:block">
+                {showLanguageSwitcher !== false && (
+                  <LanguageSwitcher />
+                )}
+              </div>
+
+              {/* Mobile actions dropdown */}
+              <div className="sm:hidden relative">
+                <Button variant="outline" size="sm" onClick={() => setMobileMenuOpen(v => !v)}>
+                  <User className="h-4 w-4 mr-2" />
+                  Menu
+                </Button>
+                {mobileMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 p-2">
+                    {user?.role === 'admin' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start"
+                        onClick={() => { setMobileMenuOpen(false); router.push('/admin'); }}
+                      >
+                        <Shield className="h-4 w-4 mr-2" /> {language === 'vi' ? 'Quản trị' : 'Admin Panel'}
+                      </Button>
+                    )}
+                    <div className="px-2 py-1 text-sm text-gray-600 dark:text-gray-300 flex items-center"><Coins className="h-4 w-4 mr-2" /> {credits} Credits</div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/settings'); }}
+                    >
+                      <Settings className="h-4 w-4 mr-2" /> Settings
+                    </Button>
+                    <div className="px-2 py-1">
+                      <ThemeToggle />
+                    </div>
+                    {showLanguageSwitcher !== false && (
+                      <div className="px-2 py-1">
+                        <LanguageSwitcher />
+                      </div>
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="w-full justify-start mt-1"
+                      onClick={async () => { setMobileMenuOpen(false); await handleLogout(); }}
+                    >
+                      <LogOut className="h-4 w-4 mr-2" /> {t('common.logout')}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </header>

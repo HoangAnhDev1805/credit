@@ -75,7 +75,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     const fetchSiteConfig = async () => {
       try {
         const response = await apiClient.getPublicConfig()
-        const data = (response as any)?.data?.data || {}
+        const data = (response as any)?.data || {}
         const general = data.general || {}
         const seo = data.seo || {}
 
