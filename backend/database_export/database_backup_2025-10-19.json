@@ -1,0 +1,1271 @@
+{
+  "exportDate": "2025-10-19T16:05:39.358Z",
+  "database": "credit_card_checker",
+  "mongodbUri": "mongodb://localhost:27017/credit_card_checker",
+  "collections": {
+    "paymentmethods": [
+      {
+        "_id": "68f435cea06e8c9046786458",
+        "name": "Vietcombank",
+        "type": "bank_transfer",
+        "accountNumber": "1234567890",
+        "accountName": "NGUYEN VAN A",
+        "bankName": "Vietcombank",
+        "bankCode": "VCB",
+        "qrCodeType": "url",
+        "instructions": "Chuyển khoản với nội dung: [USERNAME] nap tien",
+        "minAmount": 10,
+        "maxAmount": 10000,
+        "processingTime": "5-15 minutes",
+        "fees": 0,
+        "feeType": "fixed",
+        "isActive": true,
+        "sortOrder": 1,
+        "totalTransactions": 0,
+        "totalAmount": 0,
+        "__v": 0,
+        "createdAt": "2025-10-19T00:50:22.396Z",
+        "updatedAt": "2025-10-19T00:50:22.396Z"
+      },
+      {
+        "_id": "68f435cea06e8c9046786459",
+        "name": "Techcombank",
+        "type": "bank_transfer",
+        "accountNumber": "0987654321",
+        "accountName": "TRAN THI B",
+        "bankName": "Techcombank",
+        "bankCode": "TCB",
+        "qrCodeType": "url",
+        "instructions": "Chuyển khoản với nội dung: [USERNAME] deposit",
+        "minAmount": 10,
+        "maxAmount": 5000,
+        "processingTime": "5-15 minutes",
+        "fees": 0,
+        "feeType": "fixed",
+        "isActive": true,
+        "sortOrder": 2,
+        "totalTransactions": 0,
+        "totalAmount": 0,
+        "__v": 0,
+        "createdAt": "2025-10-19T00:50:22.396Z",
+        "updatedAt": "2025-10-19T00:50:22.396Z"
+      },
+      {
+        "_id": "68f435cea06e8c904678645a",
+        "name": "MoMo Wallet",
+        "type": "e_wallet",
+        "accountNumber": "0123456789",
+        "accountName": "LE VAN C",
+        "qrCodeType": "url",
+        "instructions": "Chuyển tiền MoMo với tin nhắn: [USERNAME]",
+        "minAmount": 5,
+        "maxAmount": 2000,
+        "processingTime": "5-15 minutes",
+        "fees": 0,
+        "feeType": "fixed",
+        "isActive": true,
+        "sortOrder": 3,
+        "totalTransactions": 0,
+        "totalAmount": 0,
+        "__v": 0,
+        "createdAt": "2025-10-19T00:50:22.397Z",
+        "updatedAt": "2025-10-19T00:50:22.397Z"
+      }
+    ],
+    "transactions": [],
+    "paymentrequests": [
+      {
+        "_id": "68f435f6d3baee50335e0c8f",
+        "userId": "68f435f62f35b82891f3da3a",
+        "amount": 100,
+        "fee": 0,
+        "finalAmount": 0,
+        "note": "Demo topup",
+        "paymentMethodId": "68f435cea06e8c9046786458",
+        "status": "pending",
+        "expiresAt": "2025-10-20T00:51:02.629Z",
+        "createdAt": "2025-10-19T00:51:02.633Z",
+        "updatedAt": "2025-10-19T00:51:02.633Z",
+        "__v": 0
+      },
+      {
+        "_id": "68f435f6d3baee50335e0c91",
+        "userId": "68f435f62f35b82891f3da3a",
+        "amount": 150,
+        "fee": 0,
+        "finalAmount": 0,
+        "note": "Demo topup",
+        "paymentMethodId": "68f435cea06e8c9046786459",
+        "status": "pending",
+        "expiresAt": "2025-10-20T00:51:02.640Z",
+        "createdAt": "2025-10-19T00:51:02.640Z",
+        "updatedAt": "2025-10-19T00:51:02.640Z",
+        "__v": 0
+      }
+    ],
+    "siteconfigs": [
+      {
+        "_id": "68f42aa42f35b82891f3a6bd",
+        "key": "site_title",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.787Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.059Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "Credit Card Checker",
+        "category": "seo",
+        "label": "Site Title",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6c0",
+        "key": "site_description",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.797Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "textarea",
+        "updatedAt": "2025-10-19T14:14:23.069Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "Professional Credit Card Checking Service",
+        "category": "seo",
+        "label": "Site Description",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6c3",
+        "key": "site_keywords",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.801Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.075Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "credit card, checker, validation, security",
+        "category": "seo",
+        "label": "Site Keywords",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6c6",
+        "key": "canonical_url",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.805Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "url",
+        "updatedAt": "2025-10-19T14:14:23.082Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "https://checkcc.live",
+        "category": "seo",
+        "label": "Canonical Base URL",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6c9",
+        "key": "robots_index",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.810Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.089Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": true,
+        "category": "seo",
+        "label": "Robots: Index",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6cc",
+        "key": "robots_follow",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.815Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.096Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": true,
+        "category": "seo",
+        "label": "Robots: Follow",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6cf",
+        "key": "robots_advanced",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.820Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.102Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "",
+        "category": "seo",
+        "label": "Robots Advanced (optional)",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6d4",
+        "key": "og_type",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.827Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.105Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "website",
+        "category": "seo",
+        "label": "OpenGraph Type",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6dc",
+        "key": "og_site_name",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.842Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.108Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "Credit Card Checker",
+        "category": "seo",
+        "label": "OpenGraph Site Name",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6e4",
+        "key": "og_image",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.861Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "file",
+        "updatedAt": "2025-10-19T14:14:23.111Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "/logo.png",
+        "category": "seo",
+        "label": "OpenGraph Image",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6eb",
+        "key": "og_title",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.873Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.114Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "Credit Card Checker",
+        "category": "seo",
+        "label": "OpenGraph Title",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6f2",
+        "key": "og_description",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.883Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "textarea",
+        "updatedAt": "2025-10-19T14:14:23.117Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "Professional Credit Card Checking Service",
+        "category": "seo",
+        "label": "OpenGraph Description",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a6f9",
+        "key": "twitter_card",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.891Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.120Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "summary_large_image",
+        "category": "seo",
+        "label": "Twitter Card",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a700",
+        "key": "twitter_site",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.900Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.123Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "",
+        "category": "seo",
+        "label": "Twitter @site",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a707",
+        "key": "twitter_creator",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.908Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.126Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "",
+        "category": "seo",
+        "label": "Twitter @creator",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a70e",
+        "key": "twitter_image",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.915Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "file",
+        "updatedAt": "2025-10-19T14:14:23.130Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "/logo.png",
+        "category": "seo",
+        "label": "Twitter Image",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a715",
+        "key": "social_links",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.923Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "json",
+        "updatedAt": "2025-10-19T14:14:23.133Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": {
+          "facebook": "",
+          "twitter": "",
+          "linkedin": "",
+          "youtube": ""
+        },
+        "category": "social",
+        "label": "Social Links",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a71c",
+        "key": "site_logo",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.931Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "file",
+        "updatedAt": "2025-10-19T14:14:23.137Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "/uploads/image-1760834285511-737270201.png",
+        "category": "general",
+        "label": "Site Logo",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a723",
+        "key": "site_favicon",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.940Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "file",
+        "updatedAt": "2025-10-19T14:14:23.140Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "/uploads/image-1760834288594-111461070.png",
+        "category": "general",
+        "label": "Site Favicon",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a72a",
+        "key": "site_thumbnail",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.947Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "file",
+        "updatedAt": "2025-10-19T14:14:23.143Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "/uploads/image-1760834291391-282869090.png",
+        "category": "general",
+        "label": "Site Thumbnail",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a731",
+        "key": "contact_email",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.954Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "email",
+        "updatedAt": "2025-10-19T14:14:23.147Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "support@example.com",
+        "category": "general",
+        "label": "Contact Email"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a738",
+        "key": "default_price_per_card",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.961Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "number",
+        "updatedAt": "2025-10-19T14:14:23.151Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": 0.1,
+        "category": "pricing",
+        "label": "Default Price Per Card"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a73f",
+        "key": "min_cards_per_check",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.969Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "number",
+        "updatedAt": "2025-10-19T14:14:23.154Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": 1,
+        "category": "pricing",
+        "label": "Minimum Cards Per Check"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a746",
+        "key": "max_cards_per_check",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.977Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "number",
+        "updatedAt": "2025-10-19T14:14:23.157Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": 1000,
+        "category": "pricing",
+        "label": "Maximum Cards Per Check"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a74d",
+        "key": "min_deposit_amount",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.984Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "number",
+        "updatedAt": "2025-10-19T14:14:23.160Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": 10,
+        "category": "payment",
+        "label": "Minimum Deposit Amount",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a754",
+        "key": "max_deposit_amount",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.991Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "number",
+        "updatedAt": "2025-10-19T14:14:23.163Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": 10000,
+        "category": "payment",
+        "label": "Maximum Deposit Amount",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa42f35b82891f3a75b",
+        "key": "payment_usd_to_credit_rate",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:44.999Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "number",
+        "updatedAt": "2025-10-19T14:14:23.167Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": 10,
+        "category": "payment",
+        "label": "USD to Credit Conversion Rate",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a762",
+        "key": "payment_show_buy_credits",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.006Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.173Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": false,
+        "category": "payment",
+        "label": "Show Buy Credits Menu",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a769",
+        "key": "payment_show_crypto_payment",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.013Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.178Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": true,
+        "category": "payment",
+        "label": "Show Crypto Payment Menu",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a770",
+        "key": "payment_credit_packages",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.020Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "json",
+        "updatedAt": "2025-10-19T14:14:23.181Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": [
+          {
+            "id": 1,
+            "name": "Starter",
+            "credits": 100,
+            "price": 10,
+            "popular": false
+          },
+          {
+            "id": 2,
+            "name": "Basic",
+            "credits": 500,
+            "price": 45,
+            "popular": true
+          },
+          {
+            "id": 3,
+            "name": "Pro",
+            "credits": 1000,
+            "price": 80,
+            "popular": false
+          },
+          {
+            "id": 4,
+            "name": "Enterprise",
+            "credits": 5000,
+            "price": 350,
+            "popular": false
+          }
+        ],
+        "category": "payment",
+        "label": "Credit Packages",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a777",
+        "key": "payment_credit_per_usd",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.027Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "number",
+        "updatedAt": "2025-10-19T14:14:23.184Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": 10,
+        "category": "payment",
+        "label": "Credits per 1 USD"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a77e",
+        "key": "crypto_usd_prices",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.033Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "json",
+        "updatedAt": "2025-10-19T14:14:23.188Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": {
+          "btc": 110000,
+          "eth": 3900,
+          "ltc": 90,
+          "trc20/usdt": 1.2,
+          "bep20/usdt": 1.2,
+          "erc20/usdt": 1.2,
+          "sol/sol": 150,
+          "polygon/pol": 0.7
+        },
+        "category": "payment",
+        "label": "Crypto USD Prices (per 1 coin)",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a785",
+        "key": "ui_default_language",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.041Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.191Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "en",
+        "category": "ui",
+        "label": "Default Language",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a78c",
+        "key": "ui_language_switcher_enabled",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.048Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.195Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": false,
+        "category": "ui",
+        "label": "Show Language Switcher",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a793",
+        "key": "ui_available_languages",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.054Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "json",
+        "updatedAt": "2025-10-19T14:14:23.198Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": [
+          "en",
+          "vi"
+        ],
+        "category": "ui",
+        "label": "Available Languages",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a79a",
+        "key": "cryptapi_merchant_address",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.061Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.201Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "",
+        "category": "api",
+        "label": "CryptAPI Merchant Address"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7a1",
+        "key": "cryptapi_merchant_addresses",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.069Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "json",
+        "updatedAt": "2025-10-19T14:14:23.204Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": {
+          "btc": "bc1qh470yfvl8m0udc5tyg4p9casvddtx9gndstrpj",
+          "ltc": "ltc1q6d8j7u6z3w27vshe9e74l8gxhtuar5n3n8fhml",
+          "bep20/usdt": "0xE4c697Af28946E0a3fC5F1Ce1639635eBEC2D5fE",
+          "trc20/usdt": "TPKJ56zQUTyM7kqqX4B6eYPv8TLRLEHyEZ",
+          "erc20/usdt": ""
+        },
+        "category": "api",
+        "label": "CryptAPI Merchant Addresses (per coin)",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7a8",
+        "key": "cryptapi_webhook_domain",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.076Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.207Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "https://checkcc.live",
+        "category": "api",
+        "label": "CryptAPI Webhook Public Domain",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7af",
+        "key": "cryptapi_enabled_coins",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.083Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "json",
+        "updatedAt": "2025-10-19T14:14:23.210Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": {
+          "btc": true,
+          "ltc": true,
+          "bep20/usdt": true,
+          "trc20/usdt": true,
+          "erc20/usdt": false,
+          "eth": false,
+          "sol/sol": false,
+          "polygon/pol": false
+        },
+        "category": "api",
+        "label": "Enabled Crypto Coins",
+        "lastModifiedBy": "68f42a4a363efd6df8666fae"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7b6",
+        "key": "post_api_token",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.089Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.213Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "",
+        "category": "api",
+        "label": "POST API Token"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7bd",
+        "key": "post_api_tokens",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.096Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "json",
+        "updatedAt": "2025-10-19T14:14:23.216Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": [],
+        "category": "api",
+        "label": "POST API Token List"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7c4",
+        "key": "post_api_user_id",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.103Z",
+        "isEditable": true,
+        "isPublic": false,
+        "sortOrder": 0,
+        "type": "text",
+        "updatedAt": "2025-10-19T14:14:23.219Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": "",
+        "category": "api",
+        "label": "POST API System User ID (stock)"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7cb",
+        "key": "enable_registration",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.110Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.222Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": true,
+        "category": "features",
+        "label": "Enable Registration"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7d2",
+        "key": "enable_card_generator",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.117Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.225Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": true,
+        "category": "features",
+        "label": "Enable Card Generator"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7d9",
+        "key": "maintenance_mode",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.124Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.229Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": false,
+        "category": "features",
+        "label": "Maintenance Mode"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7e0",
+        "key": "feature_show_buy_credits",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.130Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.232Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": true,
+        "category": "features",
+        "label": "Show Buy Credits menu"
+      },
+      {
+        "_id": "68f42aa52f35b82891f3a7e7",
+        "key": "feature_show_crypto_payment",
+        "__v": 0,
+        "createdAt": "2025-10-19T00:02:45.137Z",
+        "isEditable": true,
+        "isPublic": true,
+        "sortOrder": 0,
+        "type": "boolean",
+        "updatedAt": "2025-10-19T14:14:23.235Z",
+        "validation": {
+          "options": [],
+          "required": false
+        },
+        "value": true,
+        "category": "features",
+        "label": "Show Crypto Payment menu"
+      }
+    ],
+    "cards": [],
+    "pricingconfigs": [
+      {
+        "_id": "68f4804c3538aab4fb7b4b71",
+        "name": "1-100 Cards Tier",
+        "description": "",
+        "minCards": 1,
+        "maxCards": 100,
+        "pricePerCard": 0.1,
+        "discountPercentage": 0,
+        "isActive": true,
+        "priority": 0,
+        "applicableUserRoles": [
+          "user"
+        ],
+        "minimumBalance": 0,
+        "features": [],
+        "usageCount": 0,
+        "totalRevenue": 0,
+        "createdBy": "68f42a4a363efd6df8666fae",
+        "updatedBy": "68f42a4a363efd6df8666fae",
+        "validFrom": "2025-10-19T06:08:12.741Z",
+        "__v": 0,
+        "createdAt": "2025-10-19T06:08:12.746Z",
+        "updatedAt": "2025-10-19T06:08:12.746Z"
+      },
+      {
+        "_id": "68f4804c3538aab4fb7b4b72",
+        "name": "101-500 Cards Tier",
+        "description": "",
+        "minCards": 101,
+        "maxCards": 500,
+        "pricePerCard": 0.08,
+        "discountPercentage": 0,
+        "isActive": true,
+        "priority": 1,
+        "applicableUserRoles": [
+          "user"
+        ],
+        "minimumBalance": 0,
+        "features": [],
+        "usageCount": 0,
+        "totalRevenue": 0,
+        "createdBy": "68f42a4a363efd6df8666fae",
+        "updatedBy": "68f42a4a363efd6df8666fae",
+        "validFrom": "2025-10-19T06:08:12.741Z",
+        "__v": 0,
+        "createdAt": "2025-10-19T06:08:12.747Z",
+        "updatedAt": "2025-10-19T06:08:12.747Z"
+      },
+      {
+        "_id": "68f4804c3538aab4fb7b4b73",
+        "name": "501-∞ Cards Tier",
+        "description": "",
+        "minCards": 501,
+        "maxCards": null,
+        "pricePerCard": 0.0499001996007984,
+        "discountPercentage": 0,
+        "isActive": true,
+        "priority": 2,
+        "applicableUserRoles": [
+          "user"
+        ],
+        "minimumBalance": 0,
+        "features": [],
+        "usageCount": 0,
+        "totalRevenue": 0,
+        "createdBy": "68f42a4a363efd6df8666fae",
+        "updatedBy": "68f42a4a363efd6df8666fae",
+        "validFrom": "2025-10-19T06:08:12.742Z",
+        "__v": 0,
+        "createdAt": "2025-10-19T06:08:12.747Z",
+        "updatedAt": "2025-10-19T06:08:12.747Z"
+      }
+    ],
+    "users": [
+      {
+        "_id": "68f42a4a363efd6df8666fae",
+        "username": "admin",
+        "email": "admin@checkcc.live",
+        "password": "$2a$12$rntAa1jU81M.6gIBx9NBFuREowlOMTJo1Lv/3EXj2dite0aE44a1W",
+        "balance": 0,
+        "role": "admin",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T00:01:14.141Z",
+        "updatedAt": "2025-10-19T13:38:46.821Z",
+        "__v": 0,
+        "lastLogin": "2025-10-19T13:38:46.820Z",
+        "avatar": "/uploads/image-1760834361003-858369894.png",
+        "bio": "agency",
+        "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjQyYTRhMzYzZWZkNmRmODY2NmZhZSIsImlhdCI6MTc2MDg4MTEyNiwiZXhwIjoxNzYxNDg1OTI2LCJhdWQiOiJjcmVkaXQtY2FyZC1jaGVja2VyLXVzZXJzIiwiaXNzIjoiY3JlZGl0LWNhcmQtY2hlY2tlciJ9.US_Jkr8n3QOwgmhyc5CLI6W5yS7hPCD7NJ_qwUolIww"
+      },
+      {
+        "_id": "68f435cda06e8c9046786450",
+        "username": "testuser",
+        "email": "test@example.com",
+        "password": "$2a$12$KNlbmASQ5t61hft8ol8FB.ytHAQBjVec7xW6PTWjKGSuNHKa6ck7a",
+        "balance": 100,
+        "role": "user",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T00:50:21.961Z",
+        "updatedAt": "2025-10-19T00:50:21.961Z",
+        "__v": 0
+      },
+      {
+        "_id": "68f435f62f35b82891f3da3a",
+        "username": "demo",
+        "__v": 0,
+        "balance": 200,
+        "createdAt": "2025-10-19T00:51:02.608Z",
+        "email": "demo@example.com",
+        "password": "demo123",
+        "role": "user",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalDieCards": 0,
+        "totalLiveCards": 0,
+        "updatedAt": "2025-10-19T00:51:02.608Z"
+      },
+      {
+        "_id": "68f452aea50c2d981cb9a0dd",
+        "username": "ccv1",
+        "email": "ln859912aqt@gmail.com",
+        "password": "$2a$12$.aegaTLSCIfdpj1zD7lD9OVw8dAEVO1BDi6nHY4tYbSe7FP4CKmEe",
+        "balance": 0,
+        "role": "user",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T02:53:34.369Z",
+        "updatedAt": "2025-10-19T07:26:47.447Z",
+        "__v": 0,
+        "lastLogin": "2025-10-19T04:09:25.947Z"
+      },
+      {
+        "_id": "68f456b6a50c2d981cb9a1aa",
+        "username": "saporya1805",
+        "email": "support@checkcc.live",
+        "password": "$2a$12$Y3La0iC4LuelanhghbjqZegUScUK7AHa6DkCEJSegmW/L.JrCWFBi",
+        "balance": 0,
+        "role": "user",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T03:10:46.363Z",
+        "updatedAt": "2025-10-19T03:10:46.696Z",
+        "__v": 0,
+        "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjQ1NmI2YTUwYzJkOTgxY2I5YTFhYSIsImlhdCI6MTc2MDg0MzQ0NiwiZXhwIjoxNzYxNDQ4MjQ2LCJhdWQiOiJjcmVkaXQtY2FyZC1jaGVja2VyLXVzZXJzIiwiaXNzIjoiY3JlZGl0LWNhcmQtY2hlY2tlciJ9.FZMLF-iOSNz8Mj4LZGWVe6_OsII-bG_RixCc-TO_20c"
+      },
+      {
+        "_id": "68f46446a50c2d981cb9a3bb",
+        "username": "ningnelida8",
+        "email": "ningnelida8534@gmail.com",
+        "password": "$2a$12$95Y2yGRZjbXcwNc/ke4D.OkNbm/JyIb5ZWUl0fh65EW8eq0YeSVDK",
+        "balance": 0,
+        "role": "user",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T04:08:38.891Z",
+        "updatedAt": "2025-10-19T04:14:20.334Z",
+        "__v": 0
+      },
+      {
+        "_id": "68f4652fa50c2d981cb9a6cf",
+        "username": "saporya1806",
+        "email": "support1@checkcc.live",
+        "password": "$2a$12$iqVT.86BR8TUPK1L7PuDNu3vnu5BA7ADmEQS3dXJT/CohrM6Pv812",
+        "balance": 0,
+        "role": "user",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T04:12:31.127Z",
+        "updatedAt": "2025-10-19T04:12:31.456Z",
+        "__v": 0,
+        "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjQ2NTJmYTUwYzJkOTgxY2I5YTZjZiIsImlhdCI6MTc2MDg0NzE1MSwiZXhwIjoxNzYxNDUxOTUxLCJhdWQiOiJjcmVkaXQtY2FyZC1jaGVja2VyLXVzZXJzIiwiaXNzIjoiY3JlZGl0LWNhcmQtY2hlY2tlciJ9.hxXCdKL3JHfNMEbzqkfTYz8D1EU9ogguM4gi-Xw2ZRM"
+      },
+      {
+        "_id": "68f46602a50c2d981cb9a877",
+        "username": "Administrator",
+        "email": "checkcclive@gmail.com",
+        "password": "$2a$12$W11JpXeUnFakrZOOaZBB/.DxQmJK4T5/NnjzWSSkLi05zMXjyzqqq",
+        "balance": 0,
+        "role": "user",
+        "status": "active",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T04:16:02.179Z",
+        "updatedAt": "2025-10-19T06:42:47.547Z",
+        "__v": 0,
+        "lastLogin": "2025-10-19T06:39:49.794Z"
+      },
+      {
+        "_id": "68f4f3983538aab4fb7bbf70",
+        "username": "saporya1807",
+        "email": "saporya1805na@gmail.com",
+        "password": "$2a$12$Y2rUEWEQKnWS4S2UbQv9CO75BbhvOoBGdxgBwFEVmWPaJXvZEwHjO",
+        "balance": 0,
+        "role": "user",
+        "status": "blocked",
+        "totalCardsSubmitted": 0,
+        "totalLiveCards": 0,
+        "totalDieCards": 0,
+        "createdAt": "2025-10-19T14:20:08.328Z",
+        "updatedAt": "2025-10-19T14:21:24.862Z",
+        "__v": 0,
+        "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjRmMzk4MzUzOGFhYjRmYjdiYmY3MCIsImlhdCI6MTc2MDg4MzYwOCwiZXhwIjoxNzYxNDg4NDA4LCJhdWQiOiJjcmVkaXQtY2FyZC1jaGVja2VyLXVzZXJzIiwiaXNzIjoiY3JlZGl0LWNhcmQtY2hlY2tlciJ9.1S4GKa3vcGoF2mFplCfHazqwJDlqSRsNdLjVBdB7nEQ"
+      }
+    ],
+    "checksessions": []
+  }
+}
