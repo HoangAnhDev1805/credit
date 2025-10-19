@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/components/I18nProvider'
 import { useToast } from '@/hooks/use-toast'
+import { useAuthStore } from '@/lib/auth'
 import { 
   Code, 
   Copy, 
@@ -22,6 +23,15 @@ export default function ApiDocsPage() {
   const { t } = useI18n()
   const { toast } = useToast()
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const { user } = useAuthStore()
+  const [token, setToken] = useState<string>('')
+
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem('token') || ''
+      setToken(t)
+    } catch {}
+  }, [])
 
   const copyCode = async (code: string, id: string) => {
     try {
@@ -137,6 +147,33 @@ curl -X POST https://api.example.com/api/cards/check \\
 
   return (
     <div className="space-y-6">
+      {/* Token panel */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2"><Key className="h-5 w-5" /> JWT Token</span>
+            <Badge variant="secondary">{user?.username || 'User'}</Badge>
+          </CardTitle>
+          <CardDescription>
+            Token dùng để gọi API bảo vệ JWT như <code>/api/checkcc</code>. Token gắn với tài khoản đăng nhập để tính đúng số dư/khấu trừ.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="bg-muted p-3 rounded-lg font-mono text-xs break-all select-all">
+            {token ? token : 'Login to obtain token'}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyCode(token, 'jwt')}
+              disabled={!token}
+            >
+              {copiedCode === 'jwt' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold flex items-center gap-2">

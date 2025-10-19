@@ -52,7 +52,7 @@ export default function CheckerPage() {
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
   const [pricePerCard, setPricePerCard] = useState<number>(0)
-  const [pricingTiers, setPricingTiers] = useState<Array<{ min: number; max: number | null; total: number }>>([])
+  const [pricingTiers, setPricingTiers] = useState<Array<{ min: number; max: number | null; total: number | null; pricePerCard?: number }>>([])
 
   // Stats
   const [stats, setStats] = useState({
@@ -481,10 +481,10 @@ export default function CheckerPage() {
               {pricingTiers.length === 0 ? (
                 <div className="text-sm text-muted-foreground">{t('checker.pricing.loading')}</div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
                   {pricingTiers.map((tier, idx) => (
                     <div key={idx} className="border rounded-lg p-4 space-y-2">
-                      <div className="text-sm text-muted-foreground">
+                      <div className="text-xs sm:text-sm text-muted-foreground">
                         {tier.max ? (
                           <>
                             {t('checker.pricing.upTo')} {tier.max.toLocaleString()} {t('checker.pricing.cards')}
@@ -495,7 +495,13 @@ export default function CheckerPage() {
                           </>
                         )}
                       </div>
-                      <div className="text-2xl font-bold">${tier.total.toLocaleString()}</div>
+                      {tier.total != null ? (
+                        <div className="text-xl sm:text-2xl font-bold">${String(tier.total).toLocaleString()}</div>
+                      ) : (
+                        <div className="text-xl sm:text-2xl font-bold">
+                          {tier.pricePerCard ?? 0} Credits/card
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

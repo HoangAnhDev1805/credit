@@ -29,6 +29,7 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errors, setErrors] = useState<{ username?: string; email?: string; password?: string; confirmPassword?: string }>({})
   const [passwordValidation, setPasswordValidation] = useState({
     isValid: false,
     score: 0,
@@ -52,40 +53,22 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Validation
-    if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword) {
-      toast({
-        title: t('common.error'),
-        description: t('auth.validation.allFieldsRequired'),
-        variant: "destructive"
-      })
-      return
+    // Client-side validation (set field-level errors)
+    const newErrors: { username?: string; email?: string; password?: string; confirmPassword?: string } = {}
+    if (!formData.username) newErrors.username = 'Username is required'
+    if (!formData.email) newErrors.email = 'Email is required'
+    if (formData.email && !validateEmail(formData.email)) newErrors.email = 'Please provide a valid email'
+    if (!formData.password) newErrors.password = 'Password is required'
+    if (!formData.confirmPassword) newErrors.confirmPassword = 'Please confirm your password'
+    if (formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Password confirmation does not match'
     }
-
-    if (!validateEmail(formData.email)) {
-      toast({
-        title: t('common.error'),
-        description: language === 'en' ? 'Invalid email address' : 'Email không hợp lệ',
-        variant: 'destructive'
-      })
-      return
+    if (formData.password && !passwordValidation.isValid) {
+      newErrors.password = 'Password must be at least 6 characters and include uppercase, lowercase, and a number'
     }
-
-    if (formData.password !== formData.confirmPassword) {
-      toast({
-        title: t('common.error'),
-        description: language === 'en' ? 'Password confirmation does not match' : 'Mật khẩu xác nhận không khớp',
-        variant: 'destructive'
-      })
-      return
-    }
-
-    if (!passwordValidation.isValid) {
-      toast({
-        title: t('common.error'),
-        description: t('auth.validation.passwordNotStrong'),
-        variant: 'destructive'
-      })
+    setErrors(newErrors)
+    if (Object.keys(newErrors).length > 0) {
+      toast({ title: t('common.error'), description: 'Please fix the highlighted fields.', variant: 'destructive' })
       return
     }
 
@@ -100,24 +83,47 @@ export default function RegisterPage() {
       router.push('/dashboard')
     } catch (error: any) {
       const backend = error?.response?.data
-      const detail = Array.isArray(backend?.errors) && backend.errors.length > 0
-        ? (backend.errors[0]?.message || backend.errors[0]?.msg || backend.message)
-        : (backend?.message || error.message || 'Đăng ký thất bại')
-      toast({
-        title: t('auth.registerError'),
-        description: detail,
-        variant: "destructive"
-      })
+      const fieldErrors: { username?: string; email?: string; password?: string; confirmPassword?: string } = {}
+
+      // Map backend field errors (already English from validator)
+      if (Array.isArray(backend?.errors)) {
+        backend.errors.forEach((e: any) => {
+          const field = e.field || e.path
+          if (!field) return
+          if (['username','email','password','confirmPassword'].includes(field)) {
+            (fieldErrors as any)[field] = e.message || e.msg || 'Invalid value'
+          }
+        })
+      }
+
+      // Map known Vietnamese messages to English for better UX
+      const msg = (backend?.message || '').toString()
+      if (!fieldErrors.email && /Email\s*đã\s*được\s*sử\s*dụng/i.test(msg)) {
+        fieldErrors.email = 'Email is already in use'
+      }
+      if (!fieldErrors.username && /(Tên\s*đăng\s*nhập|Username)\s*đã\s*được\s*sử\s*dụng/i.test(msg)) {
+        fieldErrors.username = 'Username is already in use'
+      }
+
+      // If we captured any field error, highlight and guide the user
+      if (Object.keys(fieldErrors).length > 0) {
+        setErrors(fieldErrors)
+        toast({ title: t('auth.registerError'), description: 'Please fix the highlighted fields.', variant: 'destructive' })
+      } else {
+        // Fallback generic error in English-only
+        const detail = (msg && /[a-z]/i.test(msg) ? msg : 'Registration failed')
+        toast({ title: t('auth.registerError'), description: detail, variant: 'destructive' })
+      }
     } finally {
       setIsSubmitting(false)
     }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({
-      ...prev,
-      [e.target.name]: e.target.value
-    }))
+    const { name, value } = e.target
+    setFormData(prev => ({ ...prev, [name]: value }))
+    // Clear field error on change
+    setErrors(prev => ({ ...prev, [name]: undefined }))
   }
 
   if (isLoading) {
@@ -161,8 +167,12 @@ export default function RegisterPage() {
                 value={formData.username}
                 onChange={handleChange}
                 disabled={isSubmitting}
+                className={errors.username ? 'border-red-500 focus-visible:ring-red-500' : ''}
                 required
               />
+              {errors.username && (
+                <p className="text-xs text-destructive">{errors.username}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -177,10 +187,11 @@ export default function RegisterPage() {
                 value={formData.email}
                 onChange={handleChange}
                 disabled={isSubmitting}
+                className={errors.email ? 'border-red-500 focus-visible:ring-red-500' : ''}
                 required
               />
-              {formData.email && !validateEmail(formData.email) && (
-                <p className="text-xs text-destructive">{t('auth.validation.invalidEmail')}</p>
+              {errors.email && (
+                <p className="text-xs text-destructive">{errors.email}</p>
               )}
             </div>
             
@@ -197,6 +208,7 @@ export default function RegisterPage() {
                   value={formData.password}
                   onChange={handleChange}
                   disabled={isSubmitting}
+                  className={errors.password ? 'border-red-500 focus-visible:ring-red-500' : ''}
                   required
                 />
                 <Button
@@ -235,6 +247,9 @@ export default function RegisterPage() {
                       <XCircle className="h-4 w-4 text-red-500" />
                     )}
                   </div>
+                  {errors.password && (
+                    <p className="text-xs text-destructive">{errors.password}</p>
+                  )}
                   {passwordValidation.feedback.length > 0 && (
                     <ul className="text-xs text-muted-foreground space-y-1">
                       {passwordValidation.feedback.map((feedback, index) => (
@@ -259,6 +274,7 @@ export default function RegisterPage() {
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   disabled={isSubmitting}
+                  className={errors.confirmPassword ? 'border-red-500 focus-visible:ring-red-500' : ''}
                   required
                 />
                 <Button
@@ -276,8 +292,8 @@ export default function RegisterPage() {
                   )}
                 </Button>
               </div>
-              {formData.confirmPassword && formData.password !== formData.confirmPassword && (
-                <p className="text-xs text-destructive">{t('auth.validation.passwordMismatch')}</p>
+              {errors.confirmPassword && (
+                <p className="text-xs text-destructive">{errors.confirmPassword}</p>
               )}
             </div>
 

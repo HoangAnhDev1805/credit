@@ -99,23 +99,18 @@ exports.getPricingTiersPublic = async (req, res) => {
     // Lấy danh sách active tiers, sắp xếp theo minCards tăng dần
     const tiers = await PricingConfig.getActivePricingTiers('user');
 
-    // Chuyển đổi sang dạng hiển thị bảng giá tổng theo yêu cầu
-    const displayTiers = tiers.map(t => ({
-      min: t.minCards,
-      max: t.maxCards === null ? null : t.maxCards,
-      // tổng giá theo bảng giá mặc định
-      total: (() => {
-        if (t.maxCards === 100) return 1;
-        if (t.maxCards === 1000) return 10;
-        if (t.maxCards === 10000) return 100;
-        if (t.maxCards === 100000) return 1000;
-        if (t.maxCards === 1000000) return 10000;
-        if (t.maxCards === 10000000) return 100000;
-        if (t.maxCards === null && t.minCards === 10000001) return 1000000;
-        // fallback
-        return t.maxCards === null ? Math.round(t.pricePerCard * t.minCards) : Math.round(t.pricePerCard * t.maxCards);
-      })()
-    }));
+    // Chuyển sang dạng public, phản ánh trực tiếp dữ liệu DB:
+    // - total = pricePerCard * maxCards (nếu max có), làm tròn số
+    // - với max = null (∞), trả về pricePerCard để FE hiển thị "/card"
+    const displayTiers = tiers.map(t => {
+      const hasMax = t.maxCards !== null && typeof t.maxCards === 'number';
+      return {
+        min: t.minCards,
+        max: hasMax ? t.maxCards : null,
+        pricePerCard: Number(t.pricePerCard || 0),
+        total: hasMax ? Math.round(Number(t.pricePerCard || 0) * Number(t.maxCards)) : null
+      };
+    });
 
     res.json({ success: true, data: { tiers: displayTiers } });
   } catch (error) {

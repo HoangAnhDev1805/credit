@@ -363,10 +363,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
               {/* Mobile actions dropdown */}
               <div className="sm:hidden relative">
-                <Button variant="outline" size="sm" onClick={() => setMobileMenuOpen(v => !v)}>
-                  <User className="h-4 w-4 mr-2" />
-                  Menu
-                </Button>
+                <button
+                  onClick={() => setMobileMenuOpen(v => !v)}
+                  className="flex items-center gap-2 px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  {user?.avatar ? (
+                    <img src={user.avatar} alt={user?.username || 'User'} className="h-6 w-6 rounded-full border" />
+                  ) : (
+                    <div className="h-6 w-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-medium">
+                      {user?.username?.charAt(0)?.toUpperCase() || 'U'}
+                    </div>
+                  )}
+                  <span className="text-sm text-gray-700 dark:text-gray-300 max-w-[120px] truncate">{user?.username || 'User'}</span>
+                </button>
+
                 {mobileMenuOpen && (
                   <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 py-2">
                     {/* Header with avatar + username */}
@@ -380,93 +390,46 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       )}
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">{user?.username || 'User'}</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{credits} Credits</div>
                       </div>
                     </div>
-                    <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
 
-                    {/* Full navigation grouped like desktop */}
-                    <div className="max-h-[60vh] overflow-y-auto">
-                      {sections.map(section => (
-                        <div key={section.key} className="py-1">
-                          <div className="px-3 pb-1 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                            {section.label}
-                          </div>
-                          {navigation
-                            .filter(item => item.section === section.key)
-                            .map(item => {
-                              const isActive = pathname === item.href
-                              const Icon = item.icon
-                              return (
-                                <button
-                                  key={item.name as string}
-                                  onClick={() => { setMobileMenuOpen(false); router.push(item.href) }}
-                                  className={`w-full flex items-center px-3 py-2 text-sm ${
-                                    isActive
-                                      ? 'bg-blue-50 dark:bg-blue-600/30 text-blue-700 dark:text-white'
-                                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                  }`}
-                                >
-                                  <Icon className="h-4 w-4 mr-2" />
-                                  <span className="flex items-center gap-2">
-                                    {item.name}
-                                    {'badge' in item && (item as any).badge ? (
-                                      <span className="text-[10px] px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700">{(item as any).badge}</span>
-                                    ) : null}
-                                  </span>
-                                </button>
-                              )
-                            })}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-
-                    {/* Settings / Theme / Language */}
-                    <div className="py-1">
-                      <button
-                        onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/settings') }}
-                        className="w-full flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                      >
-                        <Settings className="h-4 w-4 mr-2" /> Settings
-                      </button>
-                      <div className="px-3 py-2">
-                        <ThemeToggle />
-                      </div>
-                      {showLanguageSwitcher !== false && (
-                        <div className="px-3 py-2">
-                          <LanguageSwitcher />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Admin */}
+                    {/* Admin Panel (if admin) */}
                     {user?.role === 'admin' && (
-                      <>
-                        <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-                        <button
-                          onClick={() => { setMobileMenuOpen(false); router.push('/admin') }}
-                          className="w-full flex items-center px-3 py-2 text-sm text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30"
-                        >
-                          <Shield className="h-4 w-4 mr-2" /> {language === 'vi' ? 'Quản trị' : 'Admin Panel'}
-                        </button>
-                      </>
+                      <button
+                        onClick={() => { setMobileMenuOpen(false); router.push('/admin') }}
+                        className="w-full flex items-center px-3 py-2 text-sm text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30"
+                      >
+                        <Shield className="h-4 w-4 mr-2" /> {language === 'vi' ? 'Quản trị' : 'Admin Panel'}
+                      </button>
                     )}
 
+                    {/* Credits display */}
+                    <div className="px-3 py-2 flex items-center text-sm text-gray-700 dark:text-gray-300">
+                      <Coins className="h-4 w-4 mr-2" />
+                      <span>{credits} Credits</span>
+                    </div>
+
                     <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
 
-                    {/* Logout */}
-                    <div className="px-3 pb-1">
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="w-full justify-center"
-                        onClick={async () => { setMobileMenuOpen(false); await handleLogout(); }}
-                      >
-                        <LogOut className="h-4 w-4 mr-2" /> {t('common.logout')}
-                      </Button>
+                    {/* Settings link */}
+                    <button
+                      onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/settings') }}
+                      className="w-full flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <Settings className="h-4 w-4 mr-2" /> {language === 'vi' ? 'Cài đặt' : 'Settings'}
+                    </button>
+
+                    {/* Theme Toggle */}
+                    <div className="px-3 py-2">
+                      <ThemeToggle />
                     </div>
+
+                    {/* Language Switcher */}
+                    {showLanguageSwitcher !== false && (
+                      <div className="px-3 py-2">
+                        <LanguageSwitcher />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
