@@ -368,42 +368,105 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   Menu
                 </Button>
                 {mobileMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 p-2">
-                    {user?.role === 'admin' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start"
-                        onClick={() => { setMobileMenuOpen(false); router.push('/admin'); }}
-                      >
-                        <Shield className="h-4 w-4 mr-2" /> {language === 'vi' ? 'Quản trị' : 'Admin Panel'}
-                      </Button>
-                    )}
-                    <div className="px-2 py-1 text-sm text-gray-600 dark:text-gray-300 flex items-center"><Coins className="h-4 w-4 mr-2" /> {credits} Credits</div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start"
-                      onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/settings'); }}
-                    >
-                      <Settings className="h-4 w-4 mr-2" /> Settings
-                    </Button>
-                    <div className="px-2 py-1">
-                      <ThemeToggle />
-                    </div>
-                    {showLanguageSwitcher !== false && (
-                      <div className="px-2 py-1">
-                        <LanguageSwitcher />
+                  <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 py-2">
+                    {/* Header with avatar + username */}
+                    <div className="px-3 pb-2 flex items-center gap-3">
+                      {user?.avatar ? (
+                        <img src={user.avatar} alt={user?.username || 'User'} className="h-9 w-9 rounded-full border" />
+                      ) : (
+                        <div className="h-9 w-9 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium">
+                          {user?.username?.charAt(0)?.toUpperCase() || 'U'}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">{user?.username || 'User'}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{credits} Credits</div>
                       </div>
+                    </div>
+                    <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+
+                    {/* Full navigation grouped like desktop */}
+                    <div className="max-h-[60vh] overflow-y-auto">
+                      {sections.map(section => (
+                        <div key={section.key} className="py-1">
+                          <div className="px-3 pb-1 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {section.label}
+                          </div>
+                          {navigation
+                            .filter(item => item.section === section.key)
+                            .map(item => {
+                              const isActive = pathname === item.href
+                              const Icon = item.icon
+                              return (
+                                <button
+                                  key={item.name as string}
+                                  onClick={() => { setMobileMenuOpen(false); router.push(item.href) }}
+                                  className={`w-full flex items-center px-3 py-2 text-sm ${
+                                    isActive
+                                      ? 'bg-blue-50 dark:bg-blue-600/30 text-blue-700 dark:text-white'
+                                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                  }`}
+                                >
+                                  <Icon className="h-4 w-4 mr-2" />
+                                  <span className="flex items-center gap-2">
+                                    {item.name}
+                                    {'badge' in item && (item as any).badge ? (
+                                      <span className="text-[10px] px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700">{(item as any).badge}</span>
+                                    ) : null}
+                                  </span>
+                                </button>
+                              )
+                            })}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+
+                    {/* Settings / Theme / Language */}
+                    <div className="py-1">
+                      <button
+                        onClick={() => { setMobileMenuOpen(false); router.push('/dashboard/settings') }}
+                        className="w-full flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        <Settings className="h-4 w-4 mr-2" /> Settings
+                      </button>
+                      <div className="px-3 py-2">
+                        <ThemeToggle />
+                      </div>
+                      {showLanguageSwitcher !== false && (
+                        <div className="px-3 py-2">
+                          <LanguageSwitcher />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Admin */}
+                    {user?.role === 'admin' && (
+                      <>
+                        <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+                        <button
+                          onClick={() => { setMobileMenuOpen(false); router.push('/admin') }}
+                          className="w-full flex items-center px-3 py-2 text-sm text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30"
+                        >
+                          <Shield className="h-4 w-4 mr-2" /> {language === 'vi' ? 'Quản trị' : 'Admin Panel'}
+                        </button>
+                      </>
                     )}
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="w-full justify-start mt-1"
-                      onClick={async () => { setMobileMenuOpen(false); await handleLogout(); }}
-                    >
-                      <LogOut className="h-4 w-4 mr-2" /> {t('common.logout')}
-                    </Button>
+
+                    <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+
+                    {/* Logout */}
+                    <div className="px-3 pb-1">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="w-full justify-center"
+                        onClick={async () => { setMobileMenuOpen(false); await handleLogout(); }}
+                      >
+                        <LogOut className="h-4 w-4 mr-2" /> {t('common.logout')}
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
