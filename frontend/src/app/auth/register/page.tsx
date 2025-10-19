@@ -99,9 +99,13 @@ export default function RegisterPage() {
       })
       router.push('/dashboard')
     } catch (error: any) {
+      const backend = error?.response?.data
+      const detail = Array.isArray(backend?.errors) && backend.errors.length > 0
+        ? (backend.errors[0]?.message || backend.errors[0]?.msg || backend.message)
+        : (backend?.message || error.message || 'Đăng ký thất bại')
       toast({
         title: "Lỗi đăng ký",
-        description: error.response?.data?.message || error.message || "Đăng ký thất bại",
+        description: detail,
         variant: "destructive"
       })
     } finally {

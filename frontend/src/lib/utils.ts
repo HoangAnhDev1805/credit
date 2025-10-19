@@ -192,40 +192,45 @@ export function validatePassword(password: string, lang: 'vi' | 'en' = 'vi'): {
 } {
   const feedback: string[] = []
   let score = 0
-  
-  if (password.length >= 8) {
+
+  const minLen6 = password.length >= 6
+  const hasLower = /[a-z]/.test(password)
+  const hasUpper = /[A-Z]/.test(password)
+  const hasDigit = /\d/.test(password)
+  const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password)
+
+  if (minLen6) {
     score += 1
   } else {
-    feedback.push(lang === 'en' ? 'Password must be at least 8 characters' : 'Mật khẩu phải có ít nhất 8 ký tự')
+    feedback.push(lang === 'en' ? 'Password must be at least 6 characters' : 'Mật khẩu phải có ít nhất 6 ký tự')
   }
-  
-  if (/[a-z]/.test(password)) {
+
+  if (hasLower) {
     score += 1
   } else {
     feedback.push(lang === 'en' ? 'Password must contain at least 1 lowercase letter' : 'Mật khẩu phải có ít nhất 1 chữ thường')
   }
-  
-  if (/[A-Z]/.test(password)) {
+
+  if (hasUpper) {
     score += 1
   } else {
     feedback.push(lang === 'en' ? 'Password must contain at least 1 uppercase letter' : 'Mật khẩu phải có ít nhất 1 chữ hoa')
   }
-  
-  if (/\d/.test(password)) {
+
+  if (hasDigit) {
     score += 1
   } else {
     feedback.push(lang === 'en' ? 'Password must contain at least 1 number' : 'Mật khẩu phải có ít nhất 1 số')
   }
-  
-  if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+
+  if (hasSpecial) {
     score += 1
   } else {
-    feedback.push(lang === 'en' ? 'Password must contain at least 1 special character' : 'Mật khẩu phải có ít nhất 1 ký tự đặc biệt')
+    feedback.push(lang === 'en' ? 'Password should contain at least 1 special character' : 'Nên có ít nhất 1 ký tự đặc biệt')
   }
-  
-  return {
-    isValid: score >= 4,
-    score,
-    feedback
-  }
+
+  // Align with backend rules: require minLen6 + lower + upper + digit
+  const isValid = minLen6 && hasLower && hasUpper && hasDigit
+
+  return { isValid, score, feedback }
 }
