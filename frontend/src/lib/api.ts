@@ -116,7 +116,7 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response: AxiosResponse) => response,
       async (error) => {
-        const originalRequest = error.config;
+        const originalRequest = error.config || {};
 
         // Handle 429 Too Many Requests with exponential backoff
         if (error.response?.status === 429) {
@@ -142,18 +142,29 @@ class ApiClient {
 
         // Handle 401 Unauthorized
         if (error.response?.status === 401) {
-          // Token expired, try to refresh
-          const refreshToken = localStorage.getItem('refreshToken');
+          // If the 401 came from the refresh endpoint itself, do NOT try to refresh again
+          const isRefreshCall = (originalRequest?.url || '').includes('/auth/refresh');
+          if (isRefreshCall) {
+            // refresh token invalid/expired -> clear auth and reject
+            this.clearAuth();
+            return Promise.reject(error);
+          }
+
+          // Token expired, try to refresh once
+          const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
           if (refreshToken && !originalRequest._retry) {
             originalRequest._retry = true;
             try {
               const response = await this.refreshToken(refreshToken);
               if (response.data) {
                 this.setToken(response.data.token);
-                localStorage.setItem('token', response.data.token);
-                localStorage.setItem('refreshToken', response.data.refreshToken);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('token', response.data.token);
+                  localStorage.setItem('refreshToken', response.data.refreshToken);
+                }
 
                 // Retry original request
+                originalRequest.headers = originalRequest.headers || {};
                 originalRequest.headers.Authorization = `Bearer ${response.data.token}`;
                 return this.client.request(originalRequest);
               }

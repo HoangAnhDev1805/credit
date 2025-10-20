@@ -44,6 +44,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [logoUrl, setLogoUrl] = useState('/logo.svg')
   const [paymentConfig, setPaymentConfig] = useState<any>(null)
+  const [telegramUrl, setTelegramUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -56,7 +57,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     checkAuth()
   }, [])
 
-  // Fetch site config for logo
+  // Fetch site config for logo, payment flags, and telegram support URL
   useEffect(() => {
     const fetchSiteConfig = async () => {
       try {
@@ -69,6 +70,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           if (data.success && data.data.payment) {
             setPaymentConfig(data.data.payment)
           }
+          if (data.success && data.data.social?.support_telegram_url) {
+            setTelegramUrl(data.data.social.support_telegram_url)
+          }
         }
       } catch (error) {
         console.error('Failed to fetch site config:', error)
@@ -76,6 +80,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     }
     fetchSiteConfig()
   }, [])
+
+  const showBuy = (paymentConfig?.showBuyCredits !== undefined) ? paymentConfig.showBuyCredits : (paymentConfig?.payment_show_buy_credits !== false)
+  const showCrypto = (paymentConfig?.showCryptoPayment !== undefined) ? paymentConfig.showCryptoPayment : (paymentConfig?.payment_show_crypto_payment !== false)
 
   const navigation = [
     {
@@ -103,14 +110,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       section: 'TOOLS'
     },
     // Conditionally show buy credits menu
-    ...(paymentConfig?.payment_show_buy_credits !== false ? [{
+    ...(showBuy ? [{
       name: t('dashboard.navigation.items.buyCredits'),
       href: '/dashboard/buy-credits',
       icon: ShoppingCart,
       section: 'SHOP'
     }] : []),
     // Conditionally show crypto payment menu
-    ...(paymentConfig?.payment_show_crypto_payment !== false ? [{
+    ...(showCrypto ? [{
       name: t('dashboard.navigation.items.paymentCreditsAuto'),
       href: '/dashboard/crypto-payment',
       icon: Bitcoin,
@@ -119,9 +126,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     }] : []),
     {
       name: t('dashboard.navigation.items.telegramSupport'),
-      href: '/dashboard/support',
+      href: telegramUrl || '/dashboard/support',
       icon: MessageCircle,
-      section: 'SUPPORT'
+      section: 'SUPPORT',
+      external: !!telegramUrl
     },
     {
       name: t('dashboard.navigation.items.faq'),

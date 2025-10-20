@@ -884,6 +884,7 @@ module.exports = {
       if (payload.twitterImage !== undefined) updates['twitter_image'] = payload.twitterImage;
       // Social
       if (payload.socialLinks !== undefined) updates['social_links'] = payload.socialLinks;
+      if (payload.supportTelegramUrl !== undefined) updates['support_telegram_url'] = payload.supportTelegramUrl;
 
       // cập nhật hàng loạt theo key-value
       await SiteConfig.initializeDefaults();

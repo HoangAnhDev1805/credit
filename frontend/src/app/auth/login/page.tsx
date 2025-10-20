@@ -108,7 +108,7 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form method="POST" action="#" onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <label htmlFor="login" className="text-sm font-medium">
                   {t('auth.usernameOrEmail')}

@@ -52,6 +52,8 @@ export default function CheckerPage() {
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
   const [pricePerCard, setPricePerCard] = useState<number>(0)
+  // Gate / TypeCheck: 1=Check Live, 2=Check Charge
+  const [typeCheck, setTypeCheck] = useState<number>(1)
 
   // Stats
   const [stats, setStats] = useState({
@@ -175,7 +177,7 @@ export default function CheckerPage() {
     }
 
     try {
-      const res = await apiClient.startCheck({ cards: cardsToCheck, checkType: 1 })
+      const res = await apiClient.startCheck({ cards: cardsToCheck, checkType: typeCheck })
       if (!res.success) throw new Error(res.message || t('checker.messages.checkingStarted'))
 
       const data: any = res.data
@@ -359,6 +361,19 @@ export default function CheckerPage() {
               </p>
             </CardHeader>
             <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="block text-sm mb-1">GATE / Type</label>
+                  <select
+                    value={typeCheck}
+                    onChange={(e) => setTypeCheck(Number(e.target.value))}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                  >
+                    <option value={1}>Check Live</option>
+                    <option value={2}>Check Charge</option>
+                  </select>
+                </div>
+              </div>
               <Textarea
                 value={cardsInput}
                 onChange={(e) => setCardsInput(e.target.value)}

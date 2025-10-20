@@ -373,6 +373,7 @@ siteConfigSchema.statics.initializeDefaults = async function() {
 
     // Social Links
     { key: 'social_links', value: { facebook: '', twitter: '', linkedin: '', youtube: '' }, type: 'json', category: 'social', label: 'Social Links', isPublic: true },
+    { key: 'support_telegram_url', value: '', type: 'url', category: 'social', label: 'Telegram Support URL', isPublic: true },
     // General
     { key: 'site_logo', value: '/logo.png', type: 'file', category: 'general', label: 'Site Logo', isPublic: true },
     { key: 'site_favicon', value: '/favicon.ico', type: 'file', category: 'general', label: 'Site Favicon', isPublic: true },
@@ -415,6 +416,12 @@ siteConfigSchema.statics.initializeDefaults = async function() {
     { key: 'post_api_token', value: '', type: 'text', category: 'api', label: 'POST API Token', isPublic: false },
     { key: 'post_api_tokens', value: [], type: 'json', category: 'api', label: 'POST API Token List', isPublic: false },
     { key: 'post_api_user_id', value: '', type: 'text', category: 'api', label: 'POST API System User ID (stock)', isPublic: false },
+
+    // Checker / Gates
+    { key: 'checker_gates', value: [
+      { id: 1, key: 'check_live', name: 'Check Live', typeCheck: 1 },
+      { id: 2, key: 'check_charge', name: 'Check Charge', typeCheck: 2 }
+    ], type: 'json', category: 'features', label: 'Checker Gates', isPublic: true },
 
     // Features
     { key: 'enable_registration', value: true, type: 'boolean', category: 'features', label: 'Enable Registration', isPublic: true },
