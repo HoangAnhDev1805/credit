@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { SharedTable, TableColumn } from '@/components/shared/Table'
+import { SharedTable, TableColumn, TableAction } from '@/components/shared/Table'
+import { SharedModal } from '@/components/shared/Modal'
 import { SharedPagination, usePagination } from '@/components/shared/Pagination'
 import { useToast } from '@/components/shared/Toast'
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api'
-import { Search, Filter, Download, Copy, CreditCard } from 'lucide-react'
+import { Search, Filter, Download, Copy, CreditCard, Eye, CheckCircle2, XCircle, HelpCircle, Workflow } from 'lucide-react'
 
 interface Card {
   _id: string
@@ -44,6 +45,10 @@ export default function CardManagement() {
   const [cards, setCards] = useState<Card[]>([])
   const [loading, setLoading] = useState(true)
   const [totalCards, setTotalCards] = useState(0)
+  const [totals, setTotals] = useState<{live:number;die:number;unknown:number;checking:number;all:number}>({live:0,die:0,unknown:0,checking:0,all:0})
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [selected, setSelected] = useState<Card|null>(null)
+  const [gateMap, setGateMap] = useState<Record<string | number, string>>({})
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('')
@@ -66,6 +71,19 @@ export default function CardManagement() {
     fetchCards()
   }, [currentPage, itemsPerPage, searchTerm, statusFilter, brandFilter])
 
+  // Load gates to map TypeCheck -> Gate name
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiClient.get('/gates')
+        const list = res?.data?.data?.gates || []
+        const map: Record<string | number, string> = {}
+        list.forEach((g: any) => { map[g.typeCheck] = g.name })
+        setGateMap(map)
+      } catch {}
+    })()
+  }, [])
+
   const fetchCards = async () => {
     try {
       setLoading(true)
@@ -80,6 +98,7 @@ export default function CardManagement() {
       const response = await apiClient.get(`/admin/cards?${params}`)
       setCards(response.data.data.cards)
       setTotalCards(response.data.data.pagination.totalItems)
+      if (response.data?.data?.totals) setTotals(response.data.data.totals)
     } catch (error: any) {
       console.error('Failed to fetch cards:', error)
       showError('Lỗi tải dữ liệu', 'Không thể tải danh sách thẻ')
@@ -174,13 +193,13 @@ export default function CardManagement() {
 
   const columns: TableColumn[] = [
     {
-      key: 'fullCard',
-      label: 'Thông tin thẻ',
-      width: '300px',
+      key: 'cardNumber',
+      label: 'Số thẻ',
+      width: '220px',
       render: (value, row: Card) => (
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
-            <span className="font-mono text-sm">{value}</span>
+            <span className="font-mono text-sm">{row.fullCard || value}</span>
             <Button
               variant="ghost"
               size="sm"
@@ -189,10 +208,19 @@ export default function CardManagement() {
             >
               <Copy className="h-3 w-3" />
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setSelected(row); setDetailOpen(true) }}
+              className="h-6 w-6 p-0 md:hidden"
+              title="Xem chi tiết"
+            >
+              <Eye className="h-3 w-3" />
+            </Button>
           </div>
           <div className="flex items-center space-x-2 text-xs text-muted-foreground">
             {getBrandIcon(row.brand)}
-            <span>{row.brand || 'N/A'}</span>
+            <span>{row.brand || '—'}</span>
             {row.bin && <span>BIN: {row.bin}</span>}
           </div>
         </div>
@@ -209,64 +237,21 @@ export default function CardManagement() {
           className={value === 'live' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' :
                      value === 'die' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100' : ''}
         >
-          {value === 'live' ? 'VALID' : value === 'die' ? 'INVALID' : value.toUpperCase()}
+          {value === 'live' ? 'Live' : value === 'die' ? 'Die' : value === 'checking' ? 'Đang kiểm tra' : 'Chưa xác định'}
         </Badge>
       )
     },
     {
-      key: 'bin',
-      label: 'BIN',
-      align: 'center',
-      render: (value?: string | null) => value || 'N/A'
-    },
-    {
-      key: 'brand',
-      label: 'Brand',
-      align: 'center',
-      render: (value?: string | null) => value || 'N/A'
-    },
-    {
       key: 'typeCheck',
-      label: 'Type',
+      label: 'GATE',
       align: 'center',
-      render: (value?: string | null) => value || 'N/A'
-    },
-    {
-      key: 'level',
-      label: 'Level',
-      align: 'center',
-      render: (value?: string | null) => value || 'N/A'
-    },
-    {
-      key: 'bank',
-      label: 'Ngân hàng',
-      render: (value?: string | null) => value || 'N/A'
-    },
-    {
-      key: 'country',
-      label: 'Quốc gia',
-      align: 'center',
-      render: (value?: string | null) => value || 'N/A'
-    },
-    {
-      key: 'price',
-      label: 'Giá',
-      align: 'right',
-      render: (value?: number | null) => (value ?? 0).toLocaleString('vi-VN', { style: 'currency', currency: 'USD' })
-    },
-    {
-      key: 'sessionId',
-      label: 'Phiên',
-      render: (value?: string | null) => value || '—'
-    },
-    {
-      key: 'errorMessage',
-      label: 'Lỗi',
-      render: (value?: string | null) => value || '—'
+      render: (value?: string | number | null) => (
+        <span className="text-xs font-medium">{gateMap[String(value ?? '')] || String(value ?? '—')}</span>
+      )
     },
     {
       key: 'checkedAt',
-      label: 'Ngày kiểm tra',
+      label: 'Kiểm tra',
       sortable: true,
       render: (value?: string | null) => (
         value ? (
@@ -290,12 +275,25 @@ export default function CardManagement() {
     {
       key: 'userId',
       label: 'Người dùng',
-      render: (value) => (
-        <div>
-          <div className="font-medium">{value.username}</div>
-          <div className="text-xs text-muted-foreground">{value.email}</div>
-        </div>
-      )
+      render: (value, row: Card) => {
+        const u = (row as any).originUserId || (row as any).userId || value || {}
+        const username = u?.username || '—'
+        const email = u?.email || ''
+        return (
+          <div>
+            <div className="font-medium">{username}</div>
+            {email && <div className="text-xs text-muted-foreground">{email}</div>}
+          </div>
+        )
+      }
+    }
+  ]
+
+  const actions: TableAction[] = [
+    {
+      label: 'Xem',
+      icon: <Eye className="h-4 w-4" />,
+      onClick: (row: Card) => { setSelected(row); setDetailOpen(true); }
     }
   ]
 
@@ -306,8 +304,8 @@ export default function CardManagement() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">List Bin Card</h1>
-          <p className="text-muted-foreground">Danh sách tất cả thẻ đã được kiểm tra</p>
+          <h1 className="text-2xl font-bold">Quản lý thẻ</h1>
+          <p className="text-muted-foreground">Danh sách thẻ trong hệ thống</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={handleExportCards} disabled={cards.length === 0}>
@@ -322,30 +320,41 @@ export default function CardManagement() {
       </div>
 
       {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">
-            {cards.filter(c => c.status === 'live').length}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="bg-card rounded-lg border p-4 flex items-center gap-3">
+          <CheckCircle2 className="text-green-600" />
+          <div>
+            <div className="text-2xl font-bold text-green-600">{totals.live}</div>
+            <div className="text-sm text-muted-foreground">Thẻ Live (toàn hệ thống)</div>
           </div>
-          <div className="text-sm text-muted-foreground">Thẻ Live</div>
         </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-red-600">
-            {cards.filter(c => c.status === 'die').length}
+        <div className="bg-card rounded-lg border p-4 flex items-center gap-3">
+          <XCircle className="text-red-600" />
+          <div>
+            <div className="text-2xl font-bold text-red-600">{totals.die}</div>
+            <div className="text-sm text-muted-foreground">Thẻ Die (toàn hệ thống)</div>
           </div>
-          <div className="text-sm text-muted-foreground">Thẻ Die</div>
         </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-yellow-600">
-            {cards.filter(c => c.status === 'unknown').length}
+        <div className="bg-card rounded-lg border p-4 flex items-center gap-3">
+          <HelpCircle className="text-yellow-600" />
+          <div>
+            <div className="text-2xl font-bold text-yellow-600">{totals.unknown}</div>
+            <div className="text-sm text-muted-foreground">Chưa xác định</div>
           </div>
-          <div className="text-sm text-muted-foreground">Chưa xác định</div>
         </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold">
-            {totalCards.toLocaleString()}
+        <div className="bg-card rounded-lg border p-4 flex items-center gap-3">
+          <Workflow className="text-blue-600" />
+          <div>
+            <div className="text-2xl font-bold text-blue-600">{totals.checking}</div>
+            <div className="text-sm text-muted-foreground">Đang kiểm tra</div>
           </div>
-          <div className="text-sm text-muted-foreground">Tổng số thẻ</div>
+        </div>
+        <div className="bg-card rounded-lg border p-4 flex items-center gap-3">
+          <CreditCard />
+          <div>
+            <div className="text-2xl font-bold">{totals.all.toLocaleString()}</div>
+            <div className="text-sm text-muted-foreground">Tổng số thẻ (toàn hệ thống)</div>
+          </div>
         </div>
       </div>
 
@@ -408,6 +417,7 @@ export default function CardManagement() {
       <SharedTable
         data={cards}
         columns={columns}
+        actions={actions}
         loading={loading}
         searchable={false}
         emptyMessage="Không có thẻ nào"
@@ -423,6 +433,70 @@ export default function CardManagement() {
         onItemsPerPageChange={setItemsPerPage}
         itemsPerPageOptions={[10, 20, 50, 100]}
       />
+
+      {/* Detail Modal */}
+      <SharedModal
+        isOpen={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        title="Chi tiết thẻ"
+        size="lg"
+      >
+        {selected && (
+          <div className="space-y-4">
+            <div className="p-3 border rounded bg-muted/40">
+              <div className="font-mono text-sm break-all">{selected.fullCard}</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-muted-foreground">GATE</div>
+                <div className="font-medium">{gateMap[String(selected.typeCheck ?? '')] || String(selected.typeCheck ?? '—')}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Trạng thái</div>
+                <div className="font-medium">{selected.status?.toUpperCase?.() || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">BIN</div>
+                <div className="font-medium">{selected.bin || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Brand</div>
+                <div className="font-medium">{selected.brand || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Bank</div>
+                <div className="font-medium">{selected.bank || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Country</div>
+                <div className="font-medium">{selected.country || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Level</div>
+                <div className="font-medium">{selected.level || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Người dùng</div>
+                <div className="font-medium">{selected.originUserId?.username || selected.userId?.username || '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Ngày tạo</div>
+                <div className="font-medium">{selected.createdAt ? new Date(selected.createdAt).toLocaleString('vi-VN') : '—'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Ngày kiểm tra</div>
+                <div className="font-medium">{selected.checkedAt ? new Date(selected.checkedAt).toLocaleString('vi-VN') : '—'}</div>
+              </div>
+              {selected.errorMessage && (
+                <div className="md:col-span-2">
+                  <div className="text-muted-foreground">Thông báo</div>
+                  <div className="font-medium break-words">{selected.errorMessage}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </SharedModal>
     </div>
   )
 }

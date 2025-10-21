@@ -124,7 +124,8 @@ async function handleFetchCards(req, res, p) {
     // Amount & TypeCheck validation
     const minAmount = await SiteConfig.getByKey('min_cards_per_check') || 1;
     const maxAmount = await SiteConfig.getByKey('max_cards_per_check') || 1000;
-    let amount = Number.isFinite(p.Amount) && p.Amount > 0 ? p.Amount : minAmount;
+    const defaultBatch = await SiteConfig.getByKey('checker_default_batch_size') || minAmount;
+    let amount = Number.isFinite(p.Amount) && p.Amount > 0 ? p.Amount : defaultBatch;
     amount = Math.min(Math.max(amount, minAmount), maxAmount);
     const typeCheck = p.TypeCheck === 1 ? 1 : 2; // default 2 (charge)
 
@@ -270,14 +271,18 @@ async function handleFetchCards(req, res, p) {
         ErrorId: 1, 
         Title: 'error', 
         Message: 'Out of stock', 
-        Content: [] 
+        Content: [],
+        PauseZenno: true,
+        pausezenno: true
       });
     }
 
-    // Mark cards as "checking"
+    // Mark cards as "checking" and set per-card deadline
     const ids = cards.map(c => c._id);
+    const timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
+    const deadline = new Date(Date.now() + timeoutSec * 1000);
     await Card.updateMany({ _id: { $in: ids } }, {
-      $set: { status: 'checking', lastCheckAt: new Date() },
+      $set: { status: 'checking', lastCheckAt: new Date(), checkDeadlineAt: deadline },
       $inc: { checkAttempts: 1 }
     });
 
@@ -330,123 +335,94 @@ async function handleUpdateStatus(req, res, p) {
       msg: p.Msg
     });
 
-    if (!p.Id || !mongoose.Types.ObjectId.isValid(String(p.Id))) {
-      return res.json({
-        ErrorId: 0,
-        Title: 'error',
-        Message: 'Invalid Id',
-        Content: ''
-      });
-    }
+    // Helper to process a single update item
+    async function processOne(item) {
+      const id = item?.Id ?? p.Id;
+      if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
+        return { id: String(id || ''), ok: false, message: 'Invalid Id' };
+      }
 
-    const newStatus = mapStatusToCard(p.Status);
+      const newStatus = mapStatusToCard(item?.Status ?? p.Status);
+      const fromVal = item?.From ?? p.From;
+      const msgVal = item?.Msg ?? p.Msg;
 
-    // L meta t th trong body/query
-    const body = { ...req.query, ...req.body };
-    const rawBin = String(body.BIN || body.Bin || body.bin || '').trim();
-    const rawBrand = String(body.Brand || body.brand || '').trim().toLowerCase();
-    const rawCountry = String(body.Country || body.country || '').trim().toUpperCase();
-    const rawBank = String(body.Bank || body.bank || '').trim();
-    const rawLevel = String(body.Level || body.level || '').trim().toLowerCase();
-    const rawType = body.Type !== undefined ? Number(body.Type) : (body.type !== undefined ? Number(body.type) : undefined);
+      const rawBin = String(item?.BIN ?? item?.Bin ?? item?.bin ?? '').trim();
+      const rawBrand = String((item?.Brand ?? item?.brand ?? '')).trim().toLowerCase();
+      const rawCountry = String((item?.Country ?? item?.country ?? '')).trim().toUpperCase();
+      const rawBank = String(item?.Bank ?? item?.bank ?? '').trim();
+      const rawLevel = String((item?.Level ?? item?.level ?? '')).trim().toLowerCase();
+      const rawType = item?.Type !== undefined ? Number(item.Type) : (item?.type !== undefined ? Number(item.type) : undefined);
+      const rawTypeCheck = item?.TypeCheck !== undefined ? Number(item.TypeCheck) : undefined;
 
-    const update = {
-      status: newStatus,
-      errorMessage: p.Msg || '',
-      lastCheckAt: new Date(),
-      zennoposter: 1 // Mark that ZennoPoster has posted result
-    };
+      const update = {
+        status: newStatus,
+        errorMessage: msgVal || '',
+        lastCheckAt: new Date(),
+        zennoposter: 1
+      };
+      if (['live','die','unknown'].includes(String(newStatus))) update.checkedAt = new Date();
+      if (fromVal !== undefined) update.checkSource = ['unknown','google','wm','zenno','777'][Number(fromVal)] || 'unknown';
+      if (/^\d{6}$/.test(rawBin)) update.bin = rawBin;
+      const allowedBrands = new Set(['visa','mastercard','amex','discover','jcb','diners','unknown']);
+      if (rawBrand && allowedBrands.has(rawBrand)) update.brand = rawBrand;
+      if (/^[A-Z]{2}$/.test(rawCountry)) update.country = rawCountry;
+      if (rawBank) update.bank = rawBank;
+      const allowedLevels = new Set(['classic','gold','platinum','black','unknown']);
+      if (rawLevel && allowedLevels.has(rawLevel)) update.level = rawLevel;
+      if (rawType === 1 || rawType === 2) update.typeCheck = rawType;
+      if (rawTypeCheck === 1 || rawTypeCheck === 2) update.typeCheck = rawTypeCheck;
 
-    // checkedAt khi tht kbt thac
-    if (['live','die','unknown'].includes(String(newStatus))) {
-      update.checkedAt = new Date();
-    }
+      const card = await Card.findByIdAndUpdate(id, { $set: update }, { new: true });
+      if (!card) return { id: String(id), ok: false, message: 'Card not found' };
 
-    // Save check source
-    if (p.From !== undefined) {
-      update.checkSource = ['unknown','google','wm','zenno','777'][Number(p.From)] || 'unknown';
-    }
+      // Billing and session updates (best effort)
+      try {
+        const finished = ['live','die'].includes(String(newStatus));
+        if (finished && card.originUserId && !card.billed) {
+          // Determine credit cost by gate
+          const Gate = require('../models/Gate');
+          const tc = Number(card.typeCheck ?? rawTypeCheck ?? rawType ?? p.TypeCheck ?? item?.TypeCheck);
+          let priceToCharge = 1;
+          try {
+            const g = await Gate.getByTypeCheck(Number(tc));
+            if (g && typeof g.creditCost === 'number') priceToCharge = Math.max(0, Number(g.creditCost));
+          } catch {}
 
-    // Gn meta nbu he3p lc
-    if (/^\d{6}$/.test(rawBin)) update.bin = rawBin;
-    const allowedBrands = new Set(['visa','mastercard','amex','discover','jcb','diners','unknown']);
-    if (rawBrand && allowedBrands.has(rawBrand)) update.brand = rawBrand;
-    if (/^[A-Z]{2}$/.test(rawCountry)) update.country = rawCountry;
-    if (rawBank) update.bank = rawBank;
-    const allowedLevels = new Set(['classic','gold','platinum','black','unknown']);
-    if (rawLevel && allowedLevels.has(rawLevel)) update.level = rawLevel;
-    if (rawType === 1 || rawType === 2) update.typeCheck = rawType;
-
-    const card = await Card.findByIdAndUpdate(p.Id, { $set: update }, { new: true });
-    if (!card) {
-      return res.json({
-        ErrorId: 0,
-        Title: 'error',
-        Message: 'Card not found',
-        Content: ''
-      });
-    }
-
-    // Billing realtime per finished card (live/die) - Use pricing tiers from database
-    try {
-      const finished = ['live','die'].includes(String(newStatus));
-      if (finished && card.originUserId && !card.billed) {
-        // Get pricing tier for this card count
-        const PricingConfig = require('../models/PricingConfig');
-        const CheckSession = require('../models/CheckSession');
-        const session = card.sessionId ? await CheckSession.findOne({ sessionId: card.sessionId }) : null;
-        const totalCards = session ? session.total : 1;
-        
-        // Find applicable pricing tier
-        const tier = await PricingConfig.findApplicablePricing(totalCards, 'user');
-        const priceToCharge = Number(tier?.effectivePrice ?? tier?.pricePerCard ?? card.price ?? 0);
-        
-        if (priceToCharge > 0) {
-          // Mark card as billed
           await Card.updateOne({ _id: card._id }, { $set: { billed: true, billAmount: priceToCharge } });
-          
-          // Deduct credit from user
           const User = require('../models/User');
           await User.updateOne({ _id: card.originUserId }, { $inc: { balance: -priceToCharge } });
-          
-          // Create transaction record
           const Transaction = require('../models/Transaction');
           await Transaction.createTransaction({
             userId: card.originUserId,
             type: 'card_check',
             amount: -priceToCharge,
             description: `Check card ${card.cardNumber ? card.cardNumber.slice(0,6)+'...' : 'unknown'}`,
-            metadata: { cardId: String(card._id), sessionId: card.sessionId }
+            metadata: { cardId: String(card._id), sessionId: card.sessionId, typeCheck: tc }
           });
-          
-          logger.info(`[Realtime Billing] Card ${card._id} charged ${priceToCharge} credits to user ${card.originUserId}`);
         }
+      } catch (e) {
+        logger.error('Billing/update session error (bulk item):', e);
       }
 
-      // Update session counters snapshot (best-effort)
-      if (card.sessionId) {
-        const CheckSession = require('../models/CheckSession');
-        const session = await CheckSession.findOne({ sessionId: card.sessionId });
-        if (session) {
-          const inc = { processed: 0, live: 0, die: 0, unknown: 0 };
-          if (newStatus === 'live') inc.live = 1;
-          else if (newStatus === 'die') inc.die = 1;
-          else if (newStatus === 'unknown') inc.unknown = 1;
-          inc.processed = 1;
-          await CheckSession.updateOne({ _id: session._id }, { $inc: inc });
-        }
-      }
-    } catch (e) {
-      logger.error('Billing/update session error:', e);
+      return { id: String(id), ok: true };
     }
 
-    // Return success in same convention as LoaiDV=1
-    return res.json({
-      ErrorId: 0,
-      Title: '',
-      Message: '',
-      Content: ''
-    });
+    // Batch mode: Content/Results array
+    const body = { ...req.query, ...req.body };
+    const items = Array.isArray(body.Content) ? body.Content : (Array.isArray(body.Results) ? body.Results : null);
+    if (Array.isArray(items) && items.length > 0) {
+      const results = [];
+      for (const it of items) {
+        const merged = { ...p, ...it };
+        const r = await processOne(merged);
+        results.push(r);
+      }
+      return res.json({ ErrorId: 0, Title: '', Message: '', Content: results });
+    }
+
+    // Single item mode: process current payload p
+    const singleResult = await processOne(p);
+    return res.json({ ErrorId: 0, Title: '', Message: '', Content: singleResult });
   } catch (err) {
     logger.error('Update status error:', err);
     return res.json({

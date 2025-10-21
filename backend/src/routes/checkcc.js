@@ -11,6 +11,23 @@ router.get('/checkcc', protect, checkcc);
 // Allow POST with Token in body/query (no login session required)
 router.post('/checkcc', protectToken, checkcc);
 
+// Utility: return requester IP for ZennoPoster to verify networking
+router.get('/checkcc/ip', (req, res) => {
+  const xfwd = req.headers['x-forwarded-for'] || '';
+  const ips = Array.isArray(xfwd) ? xfwd.join(',') : String(xfwd);
+  const ip = (ips && ips.split(',')[0].trim()) || req.ip || req.connection?.remoteAddress || '';
+  res.json({
+    success: true,
+    ip,
+    xForwardedFor: ips,
+    userAgent: req.headers['user-agent'] || '',
+    headers: {
+      'cf-connecting-ip': req.headers['cf-connecting-ip'] || '',
+      'x-real-ip': req.headers['x-real-ip'] || ''
+    }
+  });
+});
+
 // Receive result from external sender (LoaiDV=2 from admin/api-tester)
 // Router is mounted at /api, so this creates /api/checkcc/receive-result
 router.post('/checkcc/receive-result', protect, receiveResult);

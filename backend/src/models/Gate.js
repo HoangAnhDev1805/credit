@@ -17,6 +17,11 @@ const gateSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Description cannot exceed 500 characters']
   },
+  creditCost: {
+    type: Number,
+    default: 1,
+    min: [0, 'Credit cost cannot be negative']
+  },
   isActive: {
     type: Boolean,
     default: true

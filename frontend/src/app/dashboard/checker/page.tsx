@@ -67,8 +67,9 @@ export default function CheckerPage() {
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
   const [balanceLoading, setBalanceLoading] = useState(true)
-  const [pricePerCard, setPricePerCard] = useState<number>(0)
-  const [pricingTiers, setPricingTiers] = useState<Array<{ min: number; max: number | null; total: number | null; pricePerCard?: number }>>([])
+  const [pricePerCard, setPricePerCard] = useState<number>(1)
+  const [gateCostMap, setGateCostMap] = useState<Record<string, number>>({})
+  const [pricingTiers, setPricingTiers] = useState<Array<{ min: number; max: number | null; total: number | null; pricePerCard?: number }>>([{ min: 1, max: null, total: null, pricePerCard: 1 }])
 
   // Stats
   const [stats, setStats] = useState({
@@ -149,35 +150,30 @@ export default function CheckerPage() {
           const gatesData = gatesRes.data.data?.gates || []
           setGates(gatesData)
           
-          // Find gate1 or fallback to first gate
-          const gate1 = gatesData.find((g: Gate) => g.id === 'gate1')
-          if (gate1) {
-            setSelectedGate(gate1.id)
-          } else if (gatesData.length > 0) {
-            setSelectedGate(gatesData[0].id)
+          // Initialize selection by typeCheck (not id)
+          const firstGate: any = gatesData[0] as any
+          if (firstGate && firstGate.typeCheck != null) {
+            setSelectedGate(String(firstGate.typeCheck))
           }
+
+          // Build map: typeCheck(string) -> creditCost
+          const costMap: Record<string, number> = {}
+          for (const g of gatesData) {
+            const anyG: any = g as any
+            const tcKey = String(anyG.typeCheck)
+            const cost = Number(anyG.creditCost ?? 1)
+            costMap[tcKey] = isNaN(cost) ? 1 : cost
+          }
+          setGateCostMap(costMap)
+          // Initialize UI price from selected typeCheck
+          const selTc = (firstGate && firstGate.typeCheck != null) ? String(firstGate.typeCheck) : undefined
+          const initialCost = selTc ? costMap[selTc] : undefined
+          const firstCost = typeof initialCost === 'number' ? initialCost : (gatesData.length ? Number((gatesData[0] as any).creditCost ?? 1) : 1)
+          if (!isNaN(firstCost)) setPricePerCard(Math.max(0, firstCost))
         }
         
-        // Process pricing tiers - prefer admin, fallback to public
-        const adminTiers = (adminTiersRes as any)?.data?.data?.tiers
-        const publicTiers = (publicTiersRes as any)?.data?.data?.tiers
-        
-        let tiers: any[] | null = null
-        if (Array.isArray(adminTiers)) {
-          tiers = adminTiers.map((t: any) => ({
-            min: t.minCards,
-            max: t.maxCards === null ? null : t.maxCards,
-            pricePerCard: Number(t.pricePerCard || 0),
-            total: t.maxCards === null ? null : Math.round(Number(t.pricePerCard || 0) * Number(t.maxCards))
-          }))
-        } else if (Array.isArray(publicTiers)) {
-          tiers = publicTiers
-        } else {
-          // Final fallback to default pricing
-          tiers = [{ min: 0, max: null, total: null, pricePerCard: 0.1 }]
-        }
-        
-        if (Array.isArray(tiers)) setPricingTiers(tiers)
+        // Use gate cost; tiers UI hidden
+        setPricingTiers([{ min: 1, max: null, total: null, pricePerCard: pricePerCard }])
         
       } catch (err) {
         console.error('Load checker data error:', err)
@@ -225,22 +221,8 @@ export default function CheckerPage() {
       return
     }
 
-    // Tính toán credit cần dùng dựa trên pricing tiers
-    let requiredCredits = 0
-    if (pricingTiers && pricingTiers.length > 0) {
-      for (const tier of pricingTiers) {
-        const tierMin = tier.min || 0
-        const tierMax = tier.max === null ? valid.length : tier.max
-        const tierPrice = tier.pricePerCard || 0
-        
-        if (valid.length >= tierMin && valid.length <= tierMax) {
-          requiredCredits = tierPrice * valid.length
-          break
-        }
-      }
-    } else {
-      requiredCredits = pricePerCard * valid.length
-    }
+    // Giá theo GATE: pricePerCard * số thẻ
+    const requiredCredits = valid.length * (pricePerCard || 1)
 
     // Kiểm tra credit đủ không
     if (balance < requiredCredits) {
@@ -353,7 +335,9 @@ export default function CheckerPage() {
 
       const data: any = res.data
       setSessionId(data.sessionId)
-      setPricePerCard(data.pricePerCard || 0)
+      if (typeof data.pricePerCard === 'number' && data.pricePerCard >= 0) {
+        setPricePerCard(data.pricePerCard)
+      }
       setIsChecking(true) // Set checking state to true
 
       // Bắt đầu polling
@@ -423,6 +407,10 @@ export default function CheckerPage() {
               successRate: sess.total > 0 ? Math.round(((sess.live + sess.die) / sess.total) * 100) : 0,
               liveRate: sess.total > 0 ? Math.round((sess.live / sess.total) * 100) : 0,
             }))
+            // Update pricePerCard from session if backend returns it
+            if (typeof (sess as any).pricePerCard === 'number') {
+              setPricePerCard((sess as any).pricePerCard)
+            }
 
 
 
@@ -582,7 +570,14 @@ export default function CheckerPage() {
                 <label className="block text-sm font-medium mb-2">Chọn GATE</label>
                 <select
                   value={selectedGate}
-                  onChange={(e) => setSelectedGate(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedGate(e.target.value)
+                    // Try to update price from map by typeCheck
+                    const chosen = gates.find(g => String((g as any).typeCheck) === String(e.target.value) || (g as any).id === e.target.value)
+                    const tc = chosen ? String((chosen as any).typeCheck) : String(e.target.value)
+                    const cost = gateCostMap[tc]
+                    if (typeof cost === 'number') setPricePerCard(cost)
+                  }}
                   className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={gates.length === 0}
                 >
@@ -590,7 +585,7 @@ export default function CheckerPage() {
                     <option value="">Loading gates...</option>
                   ) : (
                     gates.map((gate) => (
-                      <option key={gate.id} value={String(gate.typeCheck)}>
+                      <option key={gate.id} value={String((gate as any).typeCheck)}>
                         {gate.name} {gate.description ? `- ${gate.description}` : ''}
                       </option>
                     ))
@@ -743,7 +738,7 @@ export default function CheckerPage() {
             </CardContent>
           </UICard>
 
-          {/* Pricing Table (public tiers) */}
+          {/* Pricing - fixed */}
           <UICard>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -752,35 +747,10 @@ export default function CheckerPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {pricingTiers.length === 0 ? (
-                <div className="text-sm text-muted-foreground">{t('checker.pricing.loading')}</div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {pricingTiers.slice(0, 6).map((tier, idx) => {
-                    const rangeText = tier.min && tier.max 
-                      ? `${tier.min}-${tier.max} ${t('checker.pricing.cards') || 'cards'}`
-                      : tier.max 
-                      ? `1-${tier.max} ${t('checker.pricing.cards') || 'cards'}`
-                      : `${tier.min || 501}+ ${t('checker.pricing.cards') || 'cards'}`;
-                    
-                    // Show total credits for the tier if available, otherwise pricePerCard
-                    const creditsDisplay = tier.total != null && tier.total > 0
-                      ? `${tier.total} Credits`
-                      : `${Number(tier.pricePerCard ?? 0).toFixed(2)} Credits/card`;
-                    
-                    return (
-                      <div key={idx} className="border rounded-lg p-3 sm:p-4 space-y-2">
-                        <div className="text-xs sm:text-sm text-muted-foreground">
-                          {rangeText}
-                        </div>
-                        <div className="text-lg sm:text-xl font-bold">
-                          {creditsDisplay}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="p-4 border rounded-lg">
+                <div className="text-sm text-muted-foreground">Current Price</div>
+                <div className="text-2xl font-bold">{pricePerCard} Credit{pricePerCard === 1 ? '' : 's'} / card</div>
+              </div>
             </CardContent>
           </UICard>
         </div>

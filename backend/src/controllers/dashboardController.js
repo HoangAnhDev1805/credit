@@ -21,6 +21,9 @@ exports.getStats = async (req, res) => {
 
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
+    const userId = req.user?.id ? new mongoose.Types.ObjectId(String(req.user.id)) : null;
+    const cardFilterByUser = userId ? { $or: [ { originUserId: userId }, { userId } ] } : {};
+
     const [
       totalChecked,
       liveCount,
@@ -34,21 +37,21 @@ exports.getStats = async (req, res) => {
       approvedAmountAgg,
       currentUser
     ] = await Promise.all([
-      Card.countDocuments({}),
-      Card.countDocuments({ status: 'live' }),
-      Card.countDocuments({ status: 'die' }),
-      Card.countDocuments({ status: 'unknown' }),
+      Card.countDocuments(cardFilterByUser),
+      Card.countDocuments({ ...cardFilterByUser, status: 'live' }),
+      Card.countDocuments({ ...cardFilterByUser, status: 'die' }),
+      Card.countDocuments({ ...cardFilterByUser, status: 'unknown' }),
       User.countDocuments({ status: 'active' }),
-      Card.countDocuments({ createdAt: { $gte: startOfDay } }),
-      Card.countDocuments({ createdAt: { $gte: startOfWeek } }),
-      Card.countDocuments({ createdAt: { $gte: startOfMonth } }),
+      Card.countDocuments({ ...cardFilterByUser, createdAt: { $gte: startOfDay } }),
+      Card.countDocuments({ ...cardFilterByUser, createdAt: { $gte: startOfWeek } }),
+      Card.countDocuments({ ...cardFilterByUser, createdAt: { $gte: startOfMonth } }),
       Card.aggregate([
-        { $match: { checkedAt: { $ne: null } } },
+        { $match: { checkedAt: { $ne: null }, ...(userId ? { $or: [ { originUserId: userId }, { userId } ] } : {}) } },
         { $project: { diff: { $subtract: ['$checkedAt', '$createdAt'] } } },
         { $group: { _id: null, avg: { $avg: '$diff' } } },
       ]),
       PaymentRequest.aggregate([
-        { $match: { status: 'approved' } },
+        { $match: { status: 'approved', ...(userId ? { userId } : {}) } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
       User.findById(req.user?.id).select('balance')
@@ -86,9 +89,11 @@ exports.getStats = async (req, res) => {
 exports.getActivity = async (req, res) => {
   try {
     // Lấy 10 hoạt động gần đây từ thẻ và thanh toán
+    const userId = req.user?.id ? new mongoose.Types.ObjectId(String(req.user.id)) : null;
+    const cardFilterByUser = userId ? { $or: [ { originUserId: userId }, { userId } ] } : {};
     const [recentCards, recentPayments] = await Promise.all([
-      Card.find().sort({ createdAt: -1 }).limit(5).select('status createdAt').lean(),
-      PaymentRequest.find().sort({ createdAt: -1 }).limit(5).select('status createdAt').lean(),
+      Card.find(cardFilterByUser).sort({ createdAt: -1 }).limit(5).select('status createdAt').lean(),
+      PaymentRequest.find(userId ? { userId } : {}).sort({ createdAt: -1 }).limit(5).select('status createdAt').lean(),
     ]);
 
     const activities = [

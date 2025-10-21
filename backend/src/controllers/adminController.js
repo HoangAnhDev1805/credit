@@ -271,6 +271,7 @@ const updateUser = async (req, res, next) => {
 
     const { id } = req.params;
     const { status, role, balance, addAmount, subtractAmount, newPassword } = req.body;
+    const passwordAlias = typeof req.body.password === 'string' ? req.body.password : undefined;
 
     const user = await User.findById(id);
     if (!user) {
@@ -331,9 +332,10 @@ const updateUser = async (req, res, next) => {
       }
     }
 
-    // Cập nhật mật khẩu nếu có
-    if (newPassword && typeof newPassword === 'string' && newPassword.length >= 6) {
-      user.password = newPassword; // sẽ được hash bởi pre('save')
+    // Cập nhật mật khẩu nếu có (chấp nhận newPassword hoặc password)
+    const finalNewPass = (typeof newPassword === 'string' && newPassword) || passwordAlias;
+    if (finalNewPass && typeof finalNewPass === 'string' && finalNewPass.length >= 6) {
+      user.password = finalNewPass; // sẽ được hash bởi pre('save')
     }
 
     await user.save();
@@ -498,20 +500,31 @@ const getCards = async (req, res, next) => {
     // Execute query with pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [cards, total] = await Promise.all([
+    const [cards, total, totalsByStatus] = await Promise.all([
       Card.find(filter)
         .populate('userId', 'username email')
         .populate('originUserId', 'username email')
         .sort(sort)
         .skip(skip)
         .limit(parseInt(limit)),
-      Card.countDocuments(filter)
+      Card.countDocuments(filter),
+      // Global totals across entire collection (not filtered by page)
+      Card.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ])
     ]);
 
     res.json({
       success: true,
       data: {
         cards,
+        totals: {
+          live: totalsByStatus.find?.(x => x._id === 'live')?.count || 0,
+          die: totalsByStatus.find?.(x => x._id === 'die')?.count || 0,
+          unknown: totalsByStatus.find?.(x => x._id === 'unknown')?.count || 0,
+          checking: totalsByStatus.find?.(x => x._id === 'checking')?.count || 0,
+          all: (totalsByStatus || []).reduce((s, x) => s + (x.count || 0), 0)
+        },
         pagination: {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / parseInt(limit)),
@@ -860,7 +873,10 @@ module.exports = {
         supportPhone: general?.support_phone || '',
         address: general?.address || '',
         footerText: general?.footer_text || '',
-        telegramSupportUrl: general?.telegram_support_url || ''
+        telegramSupportUrl: general?.telegram_support_url || '',
+        // Checker config
+        checkerDefaultBatchSize: await SiteConfig.getByKey('checker_default_batch_size') || 5,
+        checkerCardTimeoutSec: await SiteConfig.getByKey('checker_card_timeout_sec') || 120
       };
 
       res.json({
@@ -917,6 +933,9 @@ module.exports = {
       if (payload.address !== undefined) updates['address'] = payload.address;
       if (payload.footerText !== undefined) updates['footer_text'] = payload.footerText;
       if (payload.telegramSupportUrl !== undefined) updates['telegram_support_url'] = payload.telegramSupportUrl;
+      // Checker settings
+      if (payload.checkerDefaultBatchSize !== undefined) updates['checker_default_batch_size'] = Number(payload.checkerDefaultBatchSize);
+      if (payload.checkerCardTimeoutSec !== undefined) updates['checker_card_timeout_sec'] = Number(payload.checkerCardTimeoutSec);
 
       // cập nhật hàng loạt theo key-value
       await SiteConfig.initializeDefaults();

@@ -47,6 +47,7 @@ export default function ApiTesterPage() {
   const [cardMonth, setCardMonth] = useState('12')
   const [cardYear, setCardYear] = useState('25')
   const [cardCvv, setCardCvv] = useState('123')
+  const [amount, setAmount] = useState<number>(5)
   
   // Receiver fields (LoaiDV=2 - Manual input forms)
   const [receiverId, setReceiverId] = useState('')
@@ -54,6 +55,13 @@ export default function ApiTesterPage() {
   const [receiverState, setReceiverState] = useState('')
   const [receiverFrom, setReceiverFrom] = useState('External API')
   const [receiverMsg, setReceiverMsg] = useState('')
+  // Extra meta fields to mirror /admin/cards
+  const [receiverBIN, setReceiverBIN] = useState('')
+  const [receiverBrand, setReceiverBrand] = useState('')
+  const [receiverCountry, setReceiverCountry] = useState('')
+  const [receiverBank, setReceiverBank] = useState('')
+  const [receiverLevel, setReceiverLevel] = useState('')
+  const [receiverTypeCheck, setReceiverTypeCheck] = useState('')
 
   // Crypto API fields
   const [cryptoMethod, setCryptoMethod] = useState('GET_BALANCE')
@@ -61,16 +69,76 @@ export default function ApiTesterPage() {
   const [cryptoAmount, setCryptoAmount] = useState('')
   const [cryptoResponse, setCryptoResponse] = useState('')
 
-  useEffect(() => {
-    // Set token for API calls
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : ''
-    if (token) {
-      apiClient.setToken(token)
+  // Batch LoaiDV=2: gửi kết quả theo lô từ danh sách pending (top-level)
+  const [batchStatus, setBatchStatus] = useState<'Live' | 'Dead' | 'Unknown' | 'Error'>('Live')
+  const [batchApplyMeta, setBatchApplyMeta] = useState(false)
+  const [batchBIN, setBatchBIN] = useState('')
+  const [batchBrand, setBatchBrand] = useState('')
+  const [batchCountry, setBatchCountry] = useState('')
+  const [batchBank, setBatchBank] = useState('')
+  const [batchLevel, setBatchLevel] = useState('')
+  const [batchTypeCheck, setBatchTypeCheck] = useState('')
+  const handleBatchPost = async () => {
+    const pendings = results.filter(r => r.status === 'Pending')
+    if (pendings.length === 0) {
+      showError('Lỗi', 'Không có thẻ Pending để gửi')
+      return
     }
-    
-    // Load gates from API
-    const loadGates = async () => {
+    const statusMap: Record<string, number> = { 'Live': 2, 'Dead': 3, 'Unknown': 4, 'Error': 4 }
+    const content = pendings.map(r => ({
+      Id: r.Id,
+      Status: statusMap[batchStatus] || 4,
+      From: 3,
+      TypeCheck: batchTypeCheck ? parseInt(batchTypeCheck) : (parseInt(selectedGate) || 1),
+      Msg: r.msg || '',
+      ...(batchApplyMeta ? {
+        BIN: batchBIN || undefined,
+        Brand: batchBrand || undefined,
+        Country: batchCountry || undefined,
+        Bank: batchBank || undefined,
+        Level: batchLevel || undefined,
+      } : {})
+    }))
+
+    const reqId = `batch-${Date.now()}`
+    const payload = {
+      Token: localStorage.getItem('token') || '',
+      LoaiDV: 2,
+      Device: 'API-Tester',
+      TypeCheck: parseInt(selectedGate) || 1,
+      Content: content
+    }
+    addLog({ id: reqId, timestamp: new Date().toLocaleTimeString(), type: 'receiver', payload, response: null, status: 'pending' })
+    try {
+      setLoading(true)
+      setLastRequest({ url: senderUrl || '/api/checkcc', method: 'POST', headers: buildHeadersPreview(), body: payload })
+      const response = await apiClient.post('/checkcc', payload)
+      setLastResponse({ status: response.status, data: response.data })
+      setLogs(prev => prev.map(l => l.id === reqId ? { ...l, response: response.data, status: 'success' } : l))
+      success('Thành công', `Đã gửi kết quả cho ${content.length} thẻ`)
+      // Update local state
+      setResults(prev => prev.map(item => (
+        pendings.some(p => String(p.Id) === String(item.Id)) ? { ...item, status: batchStatus } : item
+      )))
+    } catch (error: any) {
+      const msg = error.response?.data?.message || error.message || 'Yêu cầu thất bại'
+      setLogs(prev => prev.map(l => l.id === reqId ? { ...l, status: 'error', error: msg, response: error.response?.data } : l))
+      showError('Lỗi', msg)
+      setLastResponse({ error: msg })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const init = async () => {
+      // Set token for API calls
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : ''
+      if (token) {
+        apiClient.setToken(token)
+      }
       try {
+        // Load gates
         const response = await apiClient.get('/gates')
         const gatesData = response.data?.data?.gates || []
         if (Array.isArray(gatesData) && gatesData.length > 0) {
@@ -80,14 +148,19 @@ export default function ApiTesterPage() {
       } catch (error) {
         console.error('Failed to load gates:', error)
       }
+      try {
+        // Load site-config for default batch/timeout
+        const conf = await apiClient.get('/admin/site-config')
+        const cfg = conf?.data?.data?.siteConfig || {}
+        if (cfg.checkerDefaultBatchSize) setAmount(Number(cfg.checkerDefaultBatchSize))
+      } catch {}
+      try {
+        // Compute senderUrl from apiClient base
+        const base = (apiClient.getBaseUrl() || '').replace(/\/?$/, '')
+        setSenderUrl(`${base}/checkcc`)
+      } catch {}
     }
-    loadGates()
-
-    // Compute senderUrl from apiClient base
-    try {
-      const base = (apiClient.getBaseUrl() || '').replace(/\/?$/, '')
-      setSenderUrl(`${base}/checkcc`)
-    } catch {}
+    init()
   }, [])
 
   const buildHeadersPreview = () => {
@@ -131,7 +204,7 @@ export default function ApiTesterPage() {
       Token: localStorage.getItem('token') || '',
       LoaiDV: 1,
       Device: 'API-Tester',
-      Amount: 10,
+      Amount: Number(amount) || 1,
       TypeCheck: parseInt(selectedGate) || 1,
       // manual fields to allow backend fallback create card when stock is empty
       cardNumber: cardNumber.trim(),
@@ -172,7 +245,7 @@ export default function ApiTesterPage() {
       ))
 
       if (data.ErrorId === 0) {
-        success('Success', `Received ${data.Content?.length || 0} cards`)
+        success('Thành công', `Đã nhận ${data.Content?.length || 0} thẻ`)
         // Build pending results list
         if (Array.isArray(data.Content)) {
           const pending = data.Content.map((c: any) => ({
@@ -191,11 +264,11 @@ export default function ApiTesterPage() {
       } else {
         // Friendly handling for Out of stock
         setResults([])
-        const msg = data.Message || 'Failed to fetch cards'
-        showError('Error', msg)
+        const msg = data.Message || 'Không lấy được thẻ'
+        showError('Lỗi', msg)
       }
     } catch (error: any) {
-      const errorMsg = error.message || 'Network error'
+      const errorMsg = error.message || 'Lỗi mạng'
       setLogs(prev => prev.map(log =>
         log.id === reqId
           ? {
@@ -206,7 +279,7 @@ export default function ApiTesterPage() {
             }
           : log
       ))
-      showError('Error', errorMsg)
+      showError('Lỗi', errorMsg)
       setLastResponse({ error: errorMsg })
     } finally {
       setLoading(false)
@@ -273,7 +346,7 @@ export default function ApiTesterPage() {
   // LoaiDV=2: Receive result from external sender
   const handleReceiveResult = async () => {
     if (!receiverId.trim()) {
-      showError('Error', 'ID is required')
+      showError('Lỗi', 'Cần nhập ID')
       return
     }
 
@@ -295,8 +368,13 @@ export default function ApiTesterPage() {
       Status: statusMap[receiverStatus] || 4,
       State: receiverState.trim() || '',
       From: receiverFrom.trim() || '3',
-      TypeCheck: parseInt(selectedGate) || 1,
-      Msg: receiverMsg.trim() || ''
+      TypeCheck: receiverTypeCheck ? parseInt(receiverTypeCheck) : (parseInt(selectedGate) || 1),
+      Msg: receiverMsg.trim() || '',
+      BIN: receiverBIN.trim() || undefined,
+      Brand: receiverBrand.trim() || undefined,
+      Country: receiverCountry.trim() || undefined,
+      Bank: receiverBank.trim() || undefined,
+      Level: receiverLevel.trim() || undefined
     }
 
     addLog({
@@ -325,7 +403,7 @@ export default function ApiTesterPage() {
           : log
       ))
 
-      success('Success', 'Result received and saved')
+      success('Thành công', 'Đã nhận và lưu kết quả')
       // Realtime update local results list
       setResults(prev => prev.map(item => {
         if (String(item.Id) === String(receiverId.trim())) {
@@ -371,7 +449,7 @@ export default function ApiTesterPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">API Tester</h1>
-        <p className="text-muted-foreground">Test /api/checkcc endpoint with LoaiDV 1 (sender) and 2 (receiver)</p>
+        <p className="text-muted-foreground">Kiểm thử /api/checkcc với LoaiDV 1 (Gửi yêu cầu lấy thẻ) và 2 (POST kết quả)</p>
       </div>
 
       <Tabs value={activeMode} onValueChange={(v) => setActiveMode(v as 'sender' | 'receiver')}>
@@ -388,9 +466,7 @@ export default function ApiTesterPage() {
         <TabsContent value="sender" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                📤 Gửi Dữ Liệu Thẻ (LoaiDV=1)
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2">📤 Gửi yêu cầu lấy thẻ (LoaiDV=1)</CardTitle>
               <CardDescription>
                 Gửi dữ liệu thẻ tín dụng đến API bên ngoài
               </CardDescription>
@@ -421,16 +497,20 @@ export default function ApiTesterPage() {
                 </p>
               </div>
 
-              {/* Info */}
-              <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-md">
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  <strong>Endpoint:</strong> {senderUrl || '/api/checkcc'}<br/>
-                  <strong>Description:</strong> Lấy danh sách thẻ ngẫu nhiên từ database với LoaiDV=1
-                </p>
-              </div>
-
-              {/* Amount field */}
+              {/* Meta mapping fields chỉ dành cho LoaiDV=2 (Receiver tab) */}
+              {/* Amount + Card number */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="amount">Số lượng (Batch)</Label>
+                  <Input
+                    id="amount"
+                    type="number"
+                    value={amount}
+                    onChange={(e) => setAmount(Math.max(1, Number(e.target.value || 1)))}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Mặc định theo cấu hình Checker.</p>
+                </div>
                 <div>
                   <Label htmlFor="cardNumber">Số Thẻ</Label>
                   <Input
@@ -441,6 +521,7 @@ export default function ApiTesterPage() {
                     className="mt-1"
                   />
                 </div>
+              </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <Label htmlFor="cardMonth">Tháng</Label>
@@ -476,7 +557,6 @@ export default function ApiTesterPage() {
                     />
                   </div>
                 </div>
-              </div>
 
               <Button
                 onClick={handleSendCard}
@@ -512,6 +592,19 @@ export default function ApiTesterPage() {
   }
 }`}
                   </div>
+                </div>
+                <div>
+                  <Label>Gửi theo lô (Pending → {`{Status}`})</Label>
+                  <div className="flex gap-2 mt-1">
+                    <select className="w-40 px-3 py-2 border rounded-md bg-background text-foreground" value={batchStatus} onChange={e=>setBatchStatus(e.target.value as any)}>
+                      <option value="Live">Live</option>
+                      <option value="Dead">Dead</option>
+                      <option value="Unknown">Unknown</option>
+                      <option value="Error">Error</option>
+                    </select>
+                    <Button variant="secondary" onClick={handleBatchPost} disabled={loading || results.filter(r=>r.status==='Pending').length===0}>Gửi kết quả hàng loạt</Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Sử dụng Content[] gửi nhiều thẻ cùng lúc.</p>
                 </div>
               </div>
             </CardContent>
@@ -559,6 +652,23 @@ export default function ApiTesterPage() {
                     <option value="4">777</option>
                   </select>
                   <p className="text-xs text-muted-foreground mt-1">Theo apicheckcc.md: 1:Google, 2:WM, 3:Zenno, 4:777</p>
+                </div>
+                <div>
+                  <Label>Áp dụng meta hàng loạt</Label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <input id="applyMeta" type="checkbox" checked={batchApplyMeta} onChange={(e)=>setBatchApplyMeta(e.target.checked)} />
+                    <label htmlFor="applyMeta" className="text-sm">Gửi kèm BIN/Brand/Country/Bank/Level cho toàn bộ Content[]</label>
+                  </div>
+                  {batchApplyMeta && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
+                      <Input placeholder="BIN (6 số)" value={batchBIN} onChange={e=>setBatchBIN(e.target.value)} />
+                      <Input placeholder="Brand (visa/mastercard/...)" value={batchBrand} onChange={e=>setBatchBrand(e.target.value)} />
+                      <Input placeholder="Country (US, VN, ...)" value={batchCountry} onChange={e=>setBatchCountry(e.target.value)} />
+                      <Input placeholder="Bank" value={batchBank} onChange={e=>setBatchBank(e.target.value)} />
+                      <Input placeholder="Level (classic/gold/...)" value={batchLevel} onChange={e=>setBatchLevel(e.target.value)} />
+                      <Input placeholder="TypeCheck (1 hoặc 2)" value={batchTypeCheck} onChange={e=>setBatchTypeCheck(e.target.value)} />
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>

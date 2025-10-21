@@ -20,7 +20,8 @@ import {
   X,
   LogOut,
   Bell,
-  Search
+  Search,
+  Sliders
 } from 'lucide-react'
 
 const navigation = [
@@ -59,6 +60,11 @@ const navigation = [
     name: 'API Tester',
     href: '/admin/api-tester',
     icon: CreditCard // Reuse icon, or can import Search/Zap
+  }
+  ,{
+    name: 'Cấu hình Checker',
+    href: '/admin/checker-config',
+    icon: Sliders
   }
 ]
 

@@ -18,7 +18,8 @@ router.get('/', async (req, res) => {
           id: g._id,
           name: g.name,
           typeCheck: g.typeCheck,
-          description: g.description
+          description: g.description,
+          creditCost: g.creditCost
         }))
       }
     });
@@ -58,12 +59,13 @@ router.get('/admin', protect, async (req, res) => {
 // @access  Private (Admin only)
 router.post('/admin', protect, async (req, res) => {
   try {
-    const { name, typeCheck, description, isActive, sortOrder } = req.body;
+    const { name, typeCheck, description, isActive, sortOrder, creditCost } = req.body;
     
     const gate = await Gate.create({
       name,
       typeCheck,
       description,
+      creditCost,
       isActive,
       sortOrder,
       createdBy: req.user._id
@@ -91,7 +93,7 @@ router.post('/admin', protect, async (req, res) => {
 // @access  Private (Admin only)
 router.put('/admin/:id', protect, async (req, res) => {
   try {
-    const { name, typeCheck, description, isActive, sortOrder } = req.body;
+    const { name, typeCheck, description, isActive, sortOrder, creditCost } = req.body;
     
     const gate = await Gate.findByIdAndUpdate(
       req.params.id,
@@ -99,6 +101,7 @@ router.put('/admin/:id', protect, async (req, res) => {
         name,
         typeCheck,
         description,
+        creditCost,
         isActive,
         sortOrder,
         updatedBy: req.user._id

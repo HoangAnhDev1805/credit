@@ -81,6 +81,8 @@ export default function CryptoPaymentPage() {
 
   const [creditPackages, setCreditPackages] = useState<any[]>([])
   const [conversionRate, setConversionRate] = useState(10)
+  const [minDeposit, setMinDeposit] = useState(1)
+  const [maxDeposit, setMaxDeposit] = useState<number | null>(null)
   const [selectedPackage, setSelectedPackage] = useState<any>(null)
   const [selectedCoin, setSelectedCoin] = useState('btc')
   const [customAmount, setCustomAmount] = useState('')
@@ -113,33 +115,46 @@ export default function CryptoPaymentPage() {
         ])
         
         // Process config data
-        const data = configResp.data || {}
-        const apiCfg = data.api || {}
-        const coins = apiCfg.cryptapi_enabled_coins || null
+        const root = (configResp?.data && configResp.data.data) ? configResp.data.data : (configResp.data || {})
+        const apiCfg = root.api || {}
+        const coins = apiCfg.cryptapi_enabled_coins || apiCfg.cryptapi?.enabledCoins || null
         setEnabledCoins(coins)
-        const payCfg = data.payment || {}
-        const prices = payCfg.crypto_usd_prices || null
+        const payCfg = root.payment || {}
+        const prices = payCfg.crypto_usd_prices || payCfg.cryptoUsdPrices || null
         setCryptoUsdPrices(prices)
+        const conv = (typeof payCfg.usdToCreditRate === 'number' && payCfg.usdToCreditRate > 0)
+          ? payCfg.usdToCreditRate
+          : (typeof payCfg.payment_credit_per_usd === 'number' && payCfg.payment_credit_per_usd > 0
+              ? payCfg.payment_credit_per_usd
+              : conversionRate)
+        setConversionRate(conv)
 
-        // Process packages data
-        if (packagesResp.data && packagesResp.data.success) {
-          const packagesData = packagesResp.data.data || []
-          
-          // Convert packages to expected format
-          const creditPackages = packagesData.map((pkg: any) => ({
-            id: pkg._id || pkg.id,
-            credits: pkg.credits,
-            price: pkg.amount, // Use 'amount' from DB
-            bonus: pkg.bonus || 0,
-            popular: false,
-            savings: pkg.bonus > 0 ? `${pkg.bonus}%` : ''
-          }))
+        const minDep = (typeof payCfg.minDepositAmount === 'number') ? payCfg.minDepositAmount
+                     : (typeof payCfg.min_deposit_amount === 'number' ? payCfg.min_deposit_amount : undefined)
+        if (typeof minDep === 'number') setMinDeposit(minDep || 1)
 
-          setCreditPackages(creditPackages)
-          if (creditPackages.length > 0) {
-            setSelectedPackage(creditPackages[0])
-          }
-        }
+        const maxDep = (typeof payCfg.maxDepositAmount === 'number') ? payCfg.maxDepositAmount
+                     : (typeof payCfg.max_deposit_amount === 'number' ? payCfg.max_deposit_amount : undefined)
+        if (typeof maxDep === 'number') setMaxDeposit(maxDep || null)
+
+        // Prefer Admin Settings creditPackages from public config if available
+        const cfgPkgsRaw = Array.isArray(payCfg?.creditPackages)
+          ? payCfg.creditPackages
+          : (Array.isArray(payCfg?.payment_credit_packages) ? payCfg.payment_credit_packages : [])
+        const cfgPkgs = cfgPkgsRaw.map((p: any, idx: number) => ({
+          id: p.id ?? idx + 1,
+          credits: p.credits,
+          price: p.price,
+          bonus: p.bonus || 0,
+          popular: p.popular || false,
+          isActive: (p.isActive === undefined ? true : p.isActive !== false),
+          displayOrder: typeof p.displayOrder === 'number' ? p.displayOrder : idx,
+          savings: p.bonus > 0 ? `${p.bonus}%` : ''
+        })).filter((p: any) => p.isActive !== false).sort((a: any, b: any) => (a.displayOrder||0) - (b.displayOrder||0))
+
+        // Use only Admin Settings packages for consistency across system
+        setCreditPackages(cfgPkgs)
+        if (cfgPkgs.length > 0) setSelectedPackage(cfgPkgs[0])
       } catch (error) {
         // Failed to load config
       }
@@ -268,10 +283,18 @@ export default function CryptoPaymentPage() {
 
     const amount = getAmount();
 
-    if (!amount || amount < 1) {
+    if (!amount || amount < (minDeposit || 1)) {
       toast({
         title: t('cryptoPayment.toasts.errorTitle'),
         description: t('cryptoPayment.toasts.minAmount'),
+        variant: "destructive",
+      });
+      return;
+    }
+    if (maxDeposit && amount > maxDeposit) {
+      toast({
+        title: t('cryptoPayment.toasts.errorTitle'),
+        description: `Maximum deposit is $${maxDeposit}`,
         variant: "destructive",
       });
       return;

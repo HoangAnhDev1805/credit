@@ -15,6 +15,7 @@ interface Gate {
   name: string
   typeCheck: number
   description: string
+  creditCost?: number
   isActive: boolean
   sortOrder: number
 }
@@ -47,6 +48,7 @@ export function GateManager() {
       name: '',
       typeCheck: gates.length + 1,
       description: '',
+      creditCost: 1,
       isActive: true,
       sortOrder: gates.length
     }
@@ -96,6 +98,7 @@ export function GateManager() {
             name: gate.name,
             typeCheck: gate.typeCheck,
             description: gate.description,
+            creditCost: Number(gate.creditCost ?? 1),
             isActive: gate.isActive,
             sortOrder: gate.sortOrder
           })
@@ -105,6 +108,7 @@ export function GateManager() {
             name: gate.name,
             typeCheck: gate.typeCheck,
             description: gate.description,
+            creditCost: Number(gate.creditCost ?? 1),
             isActive: gate.isActive,
             sortOrder: gate.sortOrder
           })
@@ -176,6 +180,21 @@ export function GateManager() {
                     type="number"
                     value={gate.typeCheck}
                     onChange={(e) => updateGate(index, 'typeCheck', parseInt(e.target.value) || 1)}
+                    className="mt-1"
+                  />
+                </div>
+
+                {/* Credit cost */}
+                <div className="md:col-span-2">
+                  <Label htmlFor={`gate-credit-${index}`} className="text-xs">
+                    Credit/Card
+                  </Label>
+                  <Input
+                    id={`gate-credit-${index}`}
+                    type="number"
+                    step="1"
+                    value={Number(gate.creditCost ?? 1)}
+                    onChange={(e) => updateGate(index, 'creditCost', parseInt(e.target.value) || 0)}
                     className="mt-1"
                   />
                 </div>

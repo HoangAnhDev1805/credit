@@ -4,6 +4,7 @@ const Card = require('../models/Card');
 const User = require('../models/User');
 const SiteConfig = require('../models/SiteConfig');
 const PricingConfig = require('../models/PricingConfig');
+const Gate = require('../models/Gate');
 const CheckSession = require('../models/CheckSession');
 const Transaction = require('../models/Transaction');
 const logger = require('../config/logger');
@@ -45,13 +46,16 @@ function parseCards(input) {
   return out;
 }
 
-async function getPricePerCard(count) {
-  // Ưu tiên PricingConfig theo số lượng
-  const tier = await PricingConfig.findApplicablePricing(count, 'user');
-  if (tier) return Number(tier.effectivePrice || tier.pricePerCard || 0);
+async function getPricePerCardByTypeCheck(typeCheck) {
+  // Ưu tiên giá theo từng GATE (creditCost)
+  try {
+    const g = await Gate.getByTypeCheck(Number(typeCheck));
+    if (g && typeof g.creditCost === 'number') return Math.max(0, Number(g.creditCost));
+  } catch {}
   // fallback SiteConfig
   const def = await SiteConfig.getByKey('default_price_per_card');
-  return Number(def || 0);
+  const v = Number(def || 1);
+  return isNaN(v) ? 1 : v;
 }
 
 exports.startOrStop = async (req, res) => {
@@ -98,7 +102,7 @@ exports.startOrStop = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Danh sách thẻ không hợp lệ' });
     }
 
-    const pricePerCard = await getPricePerCard(parsed.length);
+    const pricePerCard = await getPricePerCardByTypeCheck(checkType);
 
     // Kiểm tra số dư
     const user = await User.findById(userId);

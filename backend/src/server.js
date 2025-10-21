@@ -61,6 +61,44 @@ app.use((req, res, next) => {
   next();
 });
 
+// Background sweeper: auto-timeout cards if ZennoPoster doesn't return in time
+try {
+  const Card = require('./models/Card');
+  const SiteConfig = require('./models/SiteConfig');
+  setInterval(async () => {
+    try {
+      const now = new Date();
+      const timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
+      // If card has explicit checkDeadlineAt past now OR lastCheckAt older than timeout, mark unknown
+      const threshold = new Date(Date.now() - timeoutSec * 1000);
+      const res = await Card.updateMany(
+        {
+          zennoposter: 0,
+          status: { $in: ['pending', 'checking'] },
+          $or: [
+            { checkDeadlineAt: { $exists: true, $lte: now } },
+            { checkDeadlineAt: { $exists: false }, lastCheckAt: { $lte: threshold } }
+          ]
+        },
+        {
+          $set: {
+            status: 'unknown',
+            errorMessage: 'Timeout by system',
+            updatedAt: new Date()
+          }
+        }
+      );
+      if (res && res.modifiedCount) {
+        console.log(`[Sweeper] Auto-timeout ${res.modifiedCount} cards to unknown`);
+      }
+    } catch (e) {
+      console.error('Sweeper error:', e.message);
+    }
+  }, 15000);
+} catch (e) {
+  console.error('Failed to start sweeper:', e.message);
+}
+
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();

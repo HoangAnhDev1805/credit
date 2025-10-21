@@ -53,7 +53,7 @@ interface PaymentConfig {
   usdToCreditRate: number;
   showBuyCredits: boolean;
   showCryptoPayment: boolean;
-  creditPackages: Array<{ id: number; name: string; credits: number; price: number; popular: boolean }>;
+  creditPackages: Array<{ id: number; name: string; credits: number; price: number; popular: boolean; bonus?: number; isActive?: boolean; displayOrder?: number }>;
   minDepositAmount: number;
   maxDepositAmount: number;
   cryptoUsdPrices?: Record<string, number>;
@@ -68,8 +68,7 @@ export default function AdminSettings() {
 
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null)
 
-  const [pricingConfig, setPricingConfig] = useState<PricingConfig | null>(null)
-  const [pricingTiers, setPricingTiers] = useState<Array<{ max: number | null, total: number }>>([])
+  // Pricing removed
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -87,29 +86,20 @@ export default function AdminSettings() {
   const fetchConfigs = async () => {
     try {
       setLoading(true)
-      const [siteResponse, pricingResponse, tiersResponse, uiResponse, cryptResponse, paymentResp] = await Promise.all([
+      const [siteResponse, uiResponse, cryptResponse, paymentResp] = await Promise.all([
         apiClient.get('/admin/site-config'),
-        apiClient.get('/admin/pricing-config'),
-        apiClient.get('/admin/pricing-tiers'),
         apiClient.get('/admin/ui-config'),
         apiClient.get('/admin/cryptapi-config'),
         apiClient.get('/admin/payment-config')
       ])
 
       setSiteConfig(siteResponse.data.data.siteConfig)
-      setPricingConfig(pricingResponse.data.data.pricingConfig)
       setUiConfig(uiResponse.data.data.uiConfig)
       setCryptApiConfig(cryptResponse.data.data.cryptapi)
 
       setPaymentConfig(paymentResp.data.data.payment)
 
-      const serverTiers = tiersResponse.data?.data?.tiers || []
-      // Chuyển đổi sang dạng hiển thị {max, total}
-      const displayTiers = serverTiers.map((t: any) => ({
-        max: t.maxCards === null ? null : t.maxCards,
-        total: t.maxCards === null ? Math.round(t.pricePerCard * t.minCards) : Math.round(t.pricePerCard * t.maxCards)
-      }))
-      setPricingTiers(displayTiers)
+      // Pricing tiers removed
     } catch (error: any) {
       console.error('Failed to fetch configs:', error)
       showError('Lỗi tải dữ liệu', 'Không thể tải cấu hình hệ thống')
@@ -134,19 +124,7 @@ export default function AdminSettings() {
     }
   }
 
-  const handleSavePricingConfig = async (formData: any) => {
-    try {
-      setSaving(true)
-      await apiClient.put('/admin/pricing-config', formData)
-      success('Thành công', 'Cập nhật cấu hình giá thành công')
-      fetchConfigs()
-    } catch (error: any) {
-      console.error('Failed to save pricing config:', error)
-      showError('Lỗi lưu', error.response?.data?.message || 'Không thể lưu cấu hình giá')
-    } finally {
-      setSaving(false)
-    }
-  }
+  // Pricing removed
 
   const handleSaveUiConfig = async (formData: any) => {
     try {
@@ -206,37 +184,7 @@ export default function AdminSettings() {
 
 
 
-  const handleSavePricingTiers = async () => {
-    try {
-      setSaving(true)
-      // Chuyển đổi sang dạng tài liệu cơ sở dữ liệu
-      const payloadTiers = pricingTiers.map((row, idx) => {
-        const prevMax = idx === 0 ? 0 : (pricingTiers[idx - 1].max || 0)
-        const minCards = prevMax + 1
-        const maxCards = row.max === null ? null : row.max
-        const divisor = maxCards ? maxCards : minCards
-        const pricePerCard = row.total / divisor
-        return {
-          minCards,
-          maxCards,
-          pricePerCard,
-          discountPercentage: 0,
-          isActive: true,
-          priority: idx,
-          applicableUserRoles: ['user']
-        }
-      })
-
-      await apiClient.put('/admin/pricing-tiers', { tiers: payloadTiers })
-      success('Thành công', 'Cập nhật bảng giá thành công')
-      fetchConfigs()
-    } catch (error: any) {
-      console.error('Failed to save pricing tiers:', error)
-      showError('Lỗi lưu', error.response?.data?.message || 'Không thể lưu bảng giá')
-    } finally {
-      setSaving(false)
-    }
-  }
+  // Pricing removed
 
   const handleSavePaymentConfig = async (formData: any) => {
     try {
@@ -297,15 +245,7 @@ export default function AdminSettings() {
     { name: 'footerText', label: 'Text footer', type: 'textarea', placeholder: 'Copyright text và thông tin khác...' },
   ]
 
-  const pricingConfigFields: FormField[] = [
-    {
-      name: 'pricePerCard',
-      label: 'Giá mỗi thẻ (Credit)',
-      type: 'number',
-      required: true,
-      placeholder: '1'
-    }
-  ]
+  // Pricing removed
 
   if (loading) {
     return (
@@ -331,8 +271,8 @@ export default function AdminSettings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex w-full gap-2 overflow-x-auto md:grid md:grid-cols-3 lg:grid-cols-7 md:overflow-visible">
-          <TabsTrigger value="site" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+        <TabsList className="flex w-full gap-2 overflow-x-auto md:grid md:grid-cols-3 lg:grid-cols-7 md:overflow-visible px-1">
+          <TabsTrigger value="site" className="shrink-0 min-w-[120px] md:min-w-0 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
             <Globe className="h-4 w-4 mr-2" />
             <div className="text-left min-w-0">
               <div className="font-medium truncate">Cấu hình chung</div>
@@ -340,7 +280,7 @@ export default function AdminSettings() {
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="language" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-purple-500 data-[state=active]:text-white">
+          <TabsTrigger value="language" className="shrink-0 min-w-[120px] md:min-w-0 data-[state=active]:bg-purple-500 data-[state=active]:text-white">
             <Languages className="h-4 w-4 mr-2" />
             <div className="text-left min-w-0">
               <div className="font-medium truncate">Giao diện</div>
@@ -348,7 +288,7 @@ export default function AdminSettings() {
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="payment" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-green-500 data-[state=active]:text-white">
+          <TabsTrigger value="payment" className="shrink-0 min-w-[140px] md:min-w-0 data-[state=active]:bg-green-500 data-[state=active]:text-white">
             <CreditCard className="h-4 w-4 mr-2" />
             <div className="text-left min-w-0">
               <div className="font-medium truncate">Thanh toán</div>
@@ -356,7 +296,7 @@ export default function AdminSettings() {
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="cryptapi" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-orange-500 data-[state=active]:text-white">
+          <TabsTrigger value="cryptapi" className="shrink-0 min-w-[140px] md:min-w-0 data-[state=active]:bg-orange-500 data-[state=active]:text-white">
             <Bitcoin className="h-4 w-4 mr-2" />
             <div className="text-left min-w-0">
               <div className="font-medium truncate">API & Tích hợp</div>
@@ -364,7 +304,7 @@ export default function AdminSettings() {
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="gate" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-pink-500 data-[state=active]:text-white">
+          <TabsTrigger value="gate" className="shrink-0 min-w-[120px] md:min-w-0 data-[state=active]:bg-pink-500 data-[state=active]:text-white">
             <Target className="h-4 w-4 mr-2" />
             <div className="text-left min-w-0">
               <div className="font-medium truncate">GATE</div>
@@ -372,15 +312,9 @@ export default function AdminSettings() {
             </div>
           </TabsTrigger>
 
-          <TabsTrigger value="pricing" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-indigo-500 data-[state=active]:text-white">
-            <Tag className="h-4 w-4 mr-2" />
-            <div className="text-left min-w-0">
-              <div className="font-medium truncate">Bảng giá</div>
-              <div className="text-xs opacity-70 truncate">Pricing Tiers</div>
-            </div>
-          </TabsTrigger>
+          {/* Pricing tab removed */}
 
-          <TabsTrigger value="preview" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-gray-500 data-[state=active]:text-white">
+          <TabsTrigger value="preview" className="shrink-0 min-w-[120px] md:min-w-0 data-[state=active]:bg-gray-500 data-[state=active]:text-white">
             <Eye className="h-4 w-4 mr-2" />
             <div className="text-left min-w-0">
               <div className="font-medium truncate">Preview</div>
@@ -642,75 +576,7 @@ export default function AdminSettings() {
           </Card>
         </TabsContent>
 
-        {/* Pricing Configuration Tab */}
-        <TabsContent value="pricing">
-          <Card className="border-l-4 border-l-indigo-500">
-            <CardHeader className="bg-indigo-50 dark:bg-indigo-950/20">
-              <CardTitle className="flex items-center text-indigo-700 dark:text-indigo-300">
-                <Tag className="h-5 w-5 mr-2" />
-                Bảng giá - Pricing Tiers
-              </CardTitle>
-              <CardDescription>
-                Thiết lập giá kiểm tra thẻ tín dụng theo từng loại và cấu hình các gói giảm giá cho khách hàng VIP
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <SharedForm
-                fields={pricingConfigFields}
-                initialData={pricingConfig || {}}
-                onSubmit={handleSavePricingConfig}
-                submitText="Lưu cấu hình"
-                loading={saving}
-                columns={2}
-              />
-
-              {/* Bảng giá theo số lượng thẻ */}
-              <div className="mt-8">
-                <h3 className="text-lg font-semibold mb-4">Bảng giá theo số lượng thẻ</h3>
-                <div className="space-y-3">
-                  {pricingTiers.map((tier, idx) => (
-                    <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 border rounded-lg items-center">
-                      <div className="text-sm text-muted-foreground">
-                        {idx === 0 ? 'Từ 1 thẻ' : `Từ ${((pricingTiers[idx-1].max||0)+1).toLocaleString()} thẻ`}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">Tối đa</span>
-                        <input
-                          type="number"
-                          className="w-40 border rounded px-2 py-1"
-                          value={tier.max ?? ''}
-                          placeholder="∞"
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setPricingTiers(prev => prev.map((t, i) => i === idx ? { ...t, max: v === '' ? null : Number(v) } : t))
-                          }}
-                        />
-                        <span className="text-sm">thẻ</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">Tổng Credit</span>
-                        <input
-                          type="number"
-                          className="w-40 border rounded px-2 py-1"
-                          value={tier.total}
-                          onChange={(e) => {
-                            const v = Number(e.target.value)
-                            setPricingTiers(prev => prev.map((t, i) => i === idx ? { ...t, total: v } : t))
-                          }}
-                        />
-                        <span className="text-sm">Credits</span>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setPricingTiers(prev => [...prev, { max: null, total: 0 }])}>Thêm dòng</Button>
-                    <Button onClick={handleSavePricingTiers} disabled={saving}>{saving ? 'Đang lưu...' : 'Lưu bảng giá'}</Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {/* Pricing Configuration Tab removed */}
 
         {/* Payment Configuration Tab */}
         <TabsContent value="payment">
@@ -796,13 +662,8 @@ export default function AdminSettings() {
                   <h3 className="font-semibold mb-2">Bảng giá hiện tại</h3>
                   <div className="border rounded-lg p-4">
                     <div className="text-lg font-semibold">
-                      {pricingConfig?.pricePerCard?.toLocaleString()} Credits / thẻ
+                      1 Credits / thẻ
                     </div>
-                    {pricingConfig?.bulkDiscounts && pricingConfig.bulkDiscounts.length > 0 && (
-                      <div className="mt-2 text-sm text-muted-foreground">
-                        Có {pricingConfig.bulkDiscounts.length} gói giảm giá
-                      </div>
-                    )}
                   </div>
                 </div>
               </CardContent>
@@ -845,7 +706,10 @@ function PaymentConfigForm({ config, onSave, saving }: {
         name: '',
         credits: 0,
         price: 0,
-        popular: false
+        bonus: 0,
+        popular: false,
+        isActive: true,
+        displayOrder: newId
       }]
     }))
   }
@@ -971,7 +835,7 @@ function PaymentConfigForm({ config, onSave, saving }: {
         </div>
         <div className="space-y-4">
           {formData.creditPackages.map((pkg) => (
-            <div key={pkg.id} className="grid grid-cols-5 gap-4 items-end p-4 border rounded-lg">
+            <div key={pkg.id} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end p-4 border rounded-lg">
               <div>
                 <Label>Tên gói</Label>
                 <Input
@@ -997,12 +861,36 @@ function PaymentConfigForm({ config, onSave, saving }: {
                   onChange={(e) => updatePackage(pkg.id, 'price', parseFloat(e.target.value) || 0)}
                 />
               </div>
+              <div>
+                <Label>Bonus (%)</Label>
+                <Input
+                  type="number"
+                  step="1"
+                  value={pkg.bonus || 0}
+                  onChange={(e) => updatePackage(pkg.id, 'bonus', parseInt(e.target.value) || 0)}
+                />
+              </div>
               <div className="flex items-center space-x-2">
                 <Checkbox
                   checked={pkg.popular}
                   onCheckedChange={(checked) => updatePackage(pkg.id, 'popular', !!checked)}
                 />
                 <Label>Phổ biến</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  checked={pkg.isActive !== false}
+                  onCheckedChange={(checked) => updatePackage(pkg.id, 'isActive', !!checked)}
+                />
+                <Label>Kích hoạt</Label>
+              </div>
+              <div>
+                <Label>Thứ tự</Label>
+                <Input
+                  type="number"
+                  value={pkg.displayOrder ?? 0}
+                  onChange={(e) => updatePackage(pkg.id, 'displayOrder', parseInt(e.target.value) || 0)}
+                />
               </div>
               <Button
                 type="button"

@@ -385,6 +385,10 @@ siteConfigSchema.statics.initializeDefaults = async function() {
     { key: 'min_cards_per_check', value: 1, type: 'number', category: 'pricing', label: 'Minimum Cards Per Check' },
     { key: 'max_cards_per_check', value: 1000, type: 'number', category: 'pricing', label: 'Maximum Cards Per Check' },
 
+    // Checker settings
+    { key: 'checker_default_batch_size', value: 5, type: 'number', category: 'checker', label: 'Checker Default Batch Size', isPublic: true },
+    { key: 'checker_card_timeout_sec', value: 120, type: 'number', category: 'checker', label: 'Checker Per-Card Timeout (seconds)', isPublic: true },
+
     // Payment
     { key: 'min_deposit_amount', value: 10, type: 'number', category: 'payment', label: 'Minimum Deposit Amount' },
     { key: 'max_deposit_amount', value: 10000, type: 'number', category: 'payment', label: 'Maximum Deposit Amount' },
