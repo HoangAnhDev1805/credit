@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const logger = require('../config/logger');
+const SiteConfig = require('../models/SiteConfig');
 
 // Protect routes - require authentication
 const protect = async (req, res, next) => {
@@ -36,9 +37,14 @@ const protect = async (req, res, next) => {
 
       // Check if user is active
       if (user.status !== 'active') {
-        return res.status(401).json({
+        const tg = (await SiteConfig.getByKey('telegram_support_url'))
+          || (await SiteConfig.getByKey('telegram_support'))
+          || '';
+        res.setHeader('X-Account-Blocked', '1');
+        return res.status(403).json({
           success: false,
-          message: 'User account is blocked'
+          message: 'Your account has been locked. Please contact Telegram support to get assistance.',
+          support: { telegram: tg }
         });
       }
 
@@ -270,9 +276,14 @@ const refreshToken = async (req, res, next) => {
 
       // Check if user is active
       if (user.status !== 'active') {
-        return res.status(401).json({
+        const tg = (await SiteConfig.getByKey('telegram_support_url'))
+          || (await SiteConfig.getByKey('telegram_support'))
+          || '';
+        res.setHeader('X-Account-Blocked', '1');
+        return res.status(403).json({
           success: false,
-          message: 'User account is blocked'
+          message: 'Your account has been locked. Please contact Telegram support to get assistance.',
+          support: { telegram: tg }
         });
       }
 

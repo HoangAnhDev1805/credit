@@ -173,6 +173,21 @@ class ApiClient {
           }
         }
 
+        // Handle 403 Forbidden due to blocked account
+        if (error.response?.status === 403) {
+          const blocked = error.response.headers?.['x-account-blocked'] === '1';
+          const tg = error.response?.data?.support?.telegram || '';
+          if (blocked && typeof window !== 'undefined') {
+            try {
+              if (tg) window.localStorage.setItem('TELEGRAM_SUPPORT_URL', tg);
+            } catch {}
+            this.clearAuth();
+            const target = tg ? `/blocked?tg=${encodeURIComponent(tg)}` : '/blocked';
+            window.location.href = target;
+            return Promise.reject(error);
+          }
+        }
+
         // Handle 401 Unauthorized
         if (error.response?.status === 401) {
           // Token expired, try to refresh
