@@ -131,23 +131,18 @@ export default function GenerateCardsPage() {
 
       if (response.ok) {
         const responseData = await response.json()
-        console.log('API Response:', responseData)
         
         // Backend returns { success: true, data: { cards: [...], count: number } }
         const cards = responseData.data?.cards || responseData.cards || responseData.data || []
-        console.log('Extracted cards:', cards, 'Length:', Array.isArray(cards) ? cards.length : 'not array')
         
         if (!Array.isArray(cards)) {
-          console.error('Cards is not an array:', cards)
-          throw new Error('Invalid response format from API')
+          throw new Error('Invalid cards format')
         }
         
         if (cards.length === 0) {
-          console.warn('Cards array is empty')
           throw new Error('No cards generated')
         }
         
-        console.log('Setting generated cards, count:', cards.length)
         setGeneratedCards(cards)
 
         // Update stats

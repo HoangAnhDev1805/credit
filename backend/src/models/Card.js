@@ -107,6 +107,11 @@ const cardSchema = new mongoose.Schema({
     enum: ['classic', 'gold', 'platinum', 'black', 'unknown'],
     default: 'unknown'
   },
+  zennoposter: {
+    type: Number,
+    default: 0, // 0 = chưa có result từ ZennoPoster, 1 = đã có result
+    index: true
+  },
   errorMessage: {
     type: String,
     trim: true

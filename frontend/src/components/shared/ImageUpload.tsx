@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
 import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { apiClient } from '@/lib/api'
 
 interface ImageUploadProps {
   value?: string
@@ -61,11 +62,28 @@ export function ImageUpload({
     return true
   }
 
+  const getApiHost = (): string => {
+    // Prefer explicit env; otherwise derive from apiClient base (/api trimmed)
+    let envBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '')
+    if (envBase) {
+      // If env mistakenly includes /api, strip it
+      if (/\/api\/?$/i.test(envBase)) envBase = envBase.replace(/\/api\/?$/i, '')
+      return envBase
+    }
+    try {
+      let base = apiClient.getBaseUrl() || '' // e.g. https://api.domain.com/api
+      if (/\/api\/?$/.test(base)) base = base.replace(/\/api\/?$/, '')
+      return base.replace(/\/+$/, '')
+    } catch {
+      return ''
+    }
+  }
+
   const uploadFile = async (file: File): Promise<string> => {
     const formData = new FormData()
     formData.append('image', file)
 
-    const base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '')
+    const base = getApiHost()
     const endpoint = variant === 'og' ? '/api/upload/image/og' : '/api/upload/image'
     const response = await fetch(`${base}${endpoint}`, {
       method: 'POST',
@@ -159,7 +177,7 @@ export function ImageUpload({
           <CardContent className="p-4">
             <div className="relative">
               <img
-                src={(value.startsWith('/uploads/') ? `${(process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/,'')}${value}` : value)}
+                src={value}
                 alt="Preview"
                 className="w-full h-48 object-cover rounded-lg"
               />

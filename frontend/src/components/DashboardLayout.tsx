@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -52,7 +52,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [logoUrl, setLogoUrl] = useState('/logo.svg')
   const [telegramUrl, setTelegramUrl] = useState('')
-  const [paymentConfig, setPaymentConfig] = useState<any>(null)
+  const [paymentConfig, setPaymentConfig] = useState<any>({
+    payment_show_buy_credits: false,
+    payment_show_crypto_payment: false
+  })
 
   useEffect(() => {
     if (user) {
@@ -65,81 +68,130 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     checkAuth()
   }, [])
 
-  // Fetch site config for logo
+  // Fetch site config ONCE for logo and menu visibility
   useEffect(() => {
+    let isMounted = true
+    
     const fetchSiteConfig = async () => {
+      if (!isMounted) return
       try {
         const response = await apiClient.getPublicConfig()
-        const data = (response as any)?.data?.data
+        // response.data contains { success: true, data: {...} }
+        const responseData = (response as any)?.data
+        const data = responseData?.data || responseData
+        
+        // Helper to convert relative URLs to absolute
         const toAbs = (url?: string) => {
           if (!url) return '/logo.png';
           // Already absolute
           if (url.startsWith('http://') || url.startsWith('https://')) return url;
           // If file is from backend uploads, prefix backend base
           if (url.startsWith('/uploads')) {
-            const base = apiClient.getBaseUrl?.() || '';
-            const backendUrl = base.endsWith('/api') ? base.slice(0, -4) : base; // strip trailing /api
-            return `${backendUrl}${url}`;
+            // Always use production URL for uploads
+            return `https://checkcc.live${url}`;
           }
           // Otherwise, keep as-is to let Next.js serve from /public
           return url;
         };
+        
+        // Set logo from general config
         if (data?.general?.site_logo) {
           setLogoUrl(toAbs(data.general.site_logo))
         }
+        
+        // Set telegram URL from general config
         if (data?.general?.telegram_support_url) {
           setTelegramUrl(data.general.telegram_support_url)
         }
+        
+        // Set payment config with menu visibility flags
         if (data?.payment) {
-          setPaymentConfig(data.payment)
+          const showBuyCredits = data.payment.payment_show_buy_credits === true
+          const showCryptoPayment = data.payment.payment_show_crypto_payment === true
+          
+          const newPaymentConfig = {
+            ...data.payment,
+            payment_show_buy_credits: showBuyCredits,
+            payment_show_crypto_payment: showCryptoPayment
+          }
+          setPaymentConfig(newPaymentConfig)
         }
+        
+        // Config loaded successfully
       } catch (error) {
-        console.error('Failed to fetch site config:', error)
+        console.error('[DashboardLayout] Failed to fetch site config:', error)
       }
     }
+    
+    // Load config initially
     fetchSiteConfig()
+    
+    // Listen for config updates via Socket.IO
+    const handleConfigUpdate = () => {
+      if (!isMounted) return
+      fetchSiteConfig()
+    }
+    
+    if (typeof window !== 'undefined') {
+      const socket = (window as any).socket
+      if (socket) {
+        socket.on('config:updated', handleConfigUpdate)
+      }
+    }
+    
+    return () => {
+      isMounted = false
+      if (typeof window !== 'undefined') {
+        const socket = (window as any).socket
+        if (socket) {
+          socket.off('config:updated', handleConfigUpdate)
+        }
+      }
+    }
   }, [])
 
-  const navigation = [
-    {
-      name: t('dashboard.navigation.items.home'),
-      href: '/dashboard',
-      icon: Home,
-      section: 'TOOLS'
-    },
-    {
-      name: t('dashboard.navigation.items.checker'),
-      href: '/dashboard/checker',
-      icon: CreditCard,
-      section: 'TOOLS'
-    },
-    {
-      name: t('dashboard.navigation.items.cardGenerator'),
-      href: '/dashboard/generate',
-      icon: Zap,
-      section: 'TOOLS'
-    },
-    {
-      name: t('dashboard.navigation.items.apiDocs'),
-      href: '/dashboard/api-docs',
-      icon: FileText,
-      section: 'TOOLS'
-    },
-    // Conditionally show buy credits menu
-    ...(paymentConfig?.payment_show_buy_credits === true ? [{
-      name: t('dashboard.navigation.items.buyCredits'),
-      href: '/dashboard/buy-credits',
-      icon: ShoppingCart,
-      section: 'SHOP'
-    }] : []),
-    // Conditionally show crypto payment menu
-    ...(paymentConfig?.payment_show_crypto_payment === true ? [{
-      name: t('dashboard.navigation.items.paymentCreditsAuto'),
-      href: '/dashboard/crypto-payment',
-      icon: Bitcoin,
-      section: 'SHOP',
-      badge: t('common.beta')
-    }] : []),
+  // Navigation array with dependency on paymentConfig to trigger re-render
+  const navigation = useMemo(() => {
+    return [
+      {
+        name: t('dashboard.navigation.items.home'),
+        href: '/dashboard',
+        icon: Home,
+        section: 'TOOLS'
+      },
+      {
+        name: t('dashboard.navigation.items.checker'),
+        href: '/dashboard/checker',
+        icon: CreditCard,
+        section: 'TOOLS'
+      },
+      {
+        name: t('dashboard.navigation.items.cardGenerator'),
+        href: '/dashboard/generate',
+        icon: Zap,
+        section: 'TOOLS'
+      },
+      {
+        name: t('dashboard.navigation.items.apiDocs'),
+        href: '/dashboard/api-docs',
+        icon: FileText,
+        section: 'TOOLS'
+      },
+      // Conditionally show buy credits menu
+      ...(paymentConfig?.payment_show_buy_credits === true ? [{
+        name: t('dashboard.navigation.items.buyCredits'),
+        href: '/dashboard/buy-credits',
+        icon: ShoppingCart,
+        section: 'SHOP'
+      }] : []),
+      // Conditionally show crypto payment menu
+      ...(paymentConfig?.payment_show_crypto_payment === true ? [{
+        name: t('dashboard.navigation.items.paymentCreditsAuto'),
+        href: '/dashboard/crypto-payment',
+        icon: Bitcoin,
+        section: 'SHOP',
+        badge: t('common.beta')
+      }] : []),
     {
       name: t('dashboard.navigation.items.telegramSupport'),
       href: telegramUrl || '/dashboard/support',
@@ -160,6 +212,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       section: 'LEGAL'
     }
   ]
+  }, [paymentConfig, telegramUrl, t])
 
   const sections = [
     { key: 'TOOLS', label: t('dashboard.navigation.sections.tools') },
@@ -206,10 +259,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="h-16 px-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <img
-              src={logoUrl || '/logo.png'}
+              src={logoUrl}
               alt="Logo"
-              className="h-12 w-auto"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png' }}
+              className="h-12 w-auto object-contain"
+              onError={(e) => { 
+                const img = e.currentTarget as HTMLImageElement;
+                if (img.src !== '/logo.png') {
+                  img.src = '/logo.png';
+                }
+              }}
             />
             <span className="font-semibold">Checker Credit</span>
           </div>
@@ -412,7 +470,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     </div>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push('/dashboard/settings')} className="sm:hidden">
+                  {user?.role === 'admin' && (
+                    <>
+                      <DropdownMenuItem onClick={() => router.push('/admin')}>
+                        <Shield className="mr-2 h-4 w-4" />
+                        <span>Admin Panel</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
                     <Settings className="h-4 w-4 mr-2" />
                     Settings
                   </DropdownMenuItem>

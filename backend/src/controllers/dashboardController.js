@@ -122,7 +122,8 @@ exports.getStatus = async (req, res) => {
     // Determine payment status based on crypto-payment (CryptAPI)
     let payment = 'offline';
     try {
-      if (cryptApiService?.isConfigured()) {
+      const isCryptApiConfigured = cryptApiService ? await cryptApiService.isConfigured() : false;
+      if (isCryptApiConfigured) {
         payment = 'online';
       } else if (paymentMethodCount > 0) {
         // fallback: if any manual payment methods exist

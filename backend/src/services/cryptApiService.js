@@ -6,16 +6,35 @@ const SiteConfig = require('../models/SiteConfig');
 
 class CryptAPIService {
   constructor() {
-    this.merchantAddress = process.env.CRYPTAPI_MERCHANT_ADDRESS;
-        this.baseUrl = process.env.BACKEND_URL || 'https://checkcc.live';
-    this.defaultCoin = process.env.CRYPTAPI_DEFAULT_COIN || 'btc';
+    this.merchantAddress = null;  // Will load from database
+    this.baseUrl = 'https://checkcc.live';  // Default webhook domain
+    this.defaultCoin = 'btc';
     this.publicKey = null;
+    this.merchantAddresses = {};  // Will load from database
+    this.enabledCoins = null;  // Will load from database
 
     // Fetch public key khi khởi tạo
     this.fetchPublicKey();
+  }
 
-    if (!this.merchantAddress) {
-      logger.warn('CryptAPI merchant address not configured');
+  async isConfigured() {
+    try {
+      // Try to load from database first
+      await this.loadDynamicConfig();
+      // Check if we have merchant address from env or database
+      const hasMerchantAddress = !!(this.merchantAddress || (this.merchantAddresses && Object.keys(this.merchantAddresses).length > 0));
+      
+      if (!hasMerchantAddress) {
+        logger.warn('[CryptAPIService] No merchant address configured', {
+          merchantAddress: this.merchantAddress,
+          merchantAddresses: this.merchantAddresses
+        });
+      }
+      
+      return hasMerchantAddress;
+    } catch (error) {
+      logger.error('[CryptAPIService] Error checking configuration:', error);
+      return false;
     }
   }
 
@@ -42,14 +61,26 @@ class CryptAPIService {
       const merchantMap = await SiteConfig.getByKey('cryptapi_merchant_addresses');
       const webhookDomain = await SiteConfig.getByKey('cryptapi_webhook_domain');
       const enabled = await SiteConfig.getByKey('cryptapi_enabled_coins');
-      if (merchant) this.merchantAddress = merchant;
-      if (merchantMap && typeof merchantMap === 'object') this.merchantAddresses = merchantMap;
-      if (webhookDomain) this.baseUrl = webhookDomain;
-      this.enabledCoins = enabled || { btc: true, ltc: true, 'bep20/usdt': true, 'trc20/usdt': false, 'erc20/usdt': false };
+      
+      if (merchant) {
+        this.merchantAddress = merchant;
+        logger.info('[CryptAPIService] Loaded merchant address from database');
+      }
+      if (merchantMap && typeof merchantMap === 'object') {
+        this.merchantAddresses = merchantMap;
+        logger.info('[CryptAPIService] Loaded merchant addresses from database:', Object.keys(merchantMap));
+      }
+      if (webhookDomain) {
+        this.baseUrl = webhookDomain;
+        logger.info('[CryptAPIService] Webhook domain:', webhookDomain);
+      }
+      this.enabledCoins = enabled || { btc: true, ltc: true, 'bep20/usdt': true, 'trc20/usdt': true };
     } catch (e) {
       // Keep env fallbacks
-      logger.warn('Failed to load dynamic CryptAPI config, using environment values');
-      if (!this.enabledCoins) this.enabledCoins = { btc: true, ltc: true, 'bep20/usdt': true, 'trc20/usdt': false, 'erc20/usdt': false };
+      logger.error('[CryptAPIService] Failed to load dynamic config:', e.message);
+      if (!this.enabledCoins) {
+        this.enabledCoins = { btc: true, ltc: true, 'bep20/usdt': true, 'trc20/usdt': true };
+      }
     }
   }
 
@@ -66,72 +97,105 @@ class CryptAPIService {
     return this.merchantAddress;
   }
 
-  // Tạo địa chỉ thanh toán
+  // Convert USD to crypto amount
+  async convertAmount(coin, usdAmount) {
+    try {
+      const url = `https://api.cryptapi.io/${coin}/convert/?value=${usdAmount}&from=usd`;
+      const response = await axios.get(url);
+      return response.data;
+    } catch (error) {
+      logger.error('[CryptAPIService] Convert failed:', error.message);
+      throw error;
+    }
+  }
+
+  // Get QR code
+  async getQRCode(coin, address, value = null) {
+    try {
+      let url = `https://api.cryptapi.io/${coin}/qrcode/?address=${address}&size=512`;
+      if (value) {
+        url += `&value=${value}`;
+      }
+      const response = await axios.get(url);
+      return response.data;
+    } catch (error) {
+      logger.error('[CryptAPIService] QR code generation failed:', error.message);
+      return null;
+    }
+  }
+
+  // Get coin info (minimum transaction, etc)
+  async getCoinInfo(coin) {
+    try {
+      const url = `https://api.cryptapi.io/${coin}/info/`;
+      const response = await axios.get(url);
+      return response.data;
+    } catch (error) {
+      logger.error('[CryptAPIService] Get info failed:', error.message);
+      throw error;
+    }
+  }
+
+  // Tạo địa chỉ thanh toán theo docs CryptAPI
   async createPaymentAddress(orderData) {
     try {
       const {
         orderId,
         coin = this.defaultCoin,
-        value,
+        amount,
         confirmations = 1
       } = orderData;
+
+      logger.info('[CryptAPIService] Creating payment:', { orderId, coin, amount });
 
       // Load latest admin config
       await this.loadDynamicConfig();
 
       if (!this.isCoinEnabled(coin)) {
-        throw new Error('This cryptocurrency is currently disabled by admin');
+        throw new Error(`Cryptocurrency ${coin} is currently disabled`);
       }
 
       const merchantAddress = this.getMerchantAddressForCoin(coin);
       if (!merchantAddress) {
-        throw new Error('Merchant address not configured for selected coin');
+        logger.error('[CryptAPIService] No merchant address for coin:', coin);
+        throw new Error(`Merchant address not configured for ${coin}`);
       }
 
-      // Tạo callback URL với order ID
+      logger.info('[CryptAPIService] Using merchant address:', { coin, address: merchantAddress });
+
+      // Build callback URL
       const callbackUrl = `${this.baseUrl}/api/payments/cryptapi/webhook?order_id=${encodeURIComponent(orderId)}`;
 
-      // Cấu hình CryptAPI
-      const cryptapiParams = {
-        json: 1,           // Webhook dạng POST + JSON
-        pending: 1,        // Nhận thông báo pending
-        confirmations,     // Số confirmations cần thiết
-        convert: 1         // Trả kèm giá trị quy đổi FIAT
-      };
+      // Call CryptAPI create endpoint directly
+      const params = new URLSearchParams({
+        callback: callbackUrl,
+        address: merchantAddress,
+        pending: '1',
+        post: '1',
+        json: '1',
+        convert: '1',
+        confirmations: confirmations.toString()
+      });
 
-      const params = { order_id: orderId };
+      const apiUrl = `https://api.cryptapi.io/${coin}/create/?${params.toString()}`;
+      logger.info('[CryptAPIService] Calling CryptAPI:', apiUrl.replace(merchantAddress, 'MERCHANT_ADDRESS'));
 
-      // Tạo instance CryptAPI
-      const ca = new CryptAPI(coin, merchantAddress, callbackUrl, params, cryptapiParams);
+      const response = await axios.get(apiUrl);
+      const data = response.data;
 
-      // Lấy địa chỉ thanh toán
-      const addressResponse = await ca.getAddress();
-
-      // CryptAPI SDK có thể trả về string address hoặc object
-      let address_in;
-      if (typeof addressResponse === 'string') {
-        address_in = addressResponse;
-      } else if (addressResponse && addressResponse.address_in) {
-        address_in = addressResponse.address_in;
+      if (!data || !data.address_in) {
+        logger.error('[CryptAPIService] Invalid response:', data);
+        throw new Error(data.error || 'Failed to create payment address');
       }
 
-      if (!address_in) {
-        throw new Error('Failed to create payment address');
-      }
+      // Get QR code
+      const qrData = await this.getQRCode(coin, data.address_in, amount);
 
-      // Tạo QR code (cần gọi getAddress trước)
-      let qrData = null;
-      try {
-        qrData = await ca.getQrcode(value, 512);
-      } catch (qrError) {
-        logger.warn('Failed to generate QR code:', qrError.message);
-      }
-
-      logger.info('CryptAPI payment address created:', {
+      logger.info('[CryptAPIService] Payment address created successfully:', {
         orderId,
         coin,
-        address_in: addressResponse.address_in,
-        minimum_transaction: addressResponse.minimum_transaction_coin
+        address_in: data.address_in,
+        minimum: data.minimum_transaction_coin
       });
 
       return {
@@ -139,14 +203,16 @@ class CryptAPIService {
         data: {
           orderId,
           coin,
-          address_in: address_in,
-          address_out: typeof addressResponse === 'object' ? addressResponse.address_out : merchantAddress,
-          minimum_transaction_coin: typeof addressResponse === 'object' ? addressResponse.minimum_transaction_coin : 0.00001,
-          callback_url: typeof addressResponse === 'object' ? addressResponse.callback_url : callbackUrl,
-          priority: typeof addressResponse === 'object' ? addressResponse.priority : 'default',
+          amount,
+          address_in: data.address_in,
+          address_out: data.address_out || merchantAddress,
+          callback_url: data.callback_url || callbackUrl,
+          minimum_transaction_coin: data.minimum_transaction_coin || 0.00001,
+          priority: data.priority || 'default',
           qr_code: qrData?.qr_code || null,
+          qrcode_url: qrData?.qr_code ? `data:image/png;base64,${qrData.qr_code}` : null,
           payment_uri: qrData?.payment_uri || null,
-          status: typeof addressResponse === 'object' ? addressResponse.status : 'success'
+          status: data.status || 'success'
         }
       };
     } catch (error) {
@@ -321,10 +387,6 @@ class CryptAPIService {
     }
   }
 
-  // Kiểm tra cấu hình
-  isConfigured() {
-    return !!(this.merchantAddress && this.publicKey);
-  }
 
   // Test connection
   async testConnection() {

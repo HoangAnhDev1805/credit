@@ -5,12 +5,15 @@ const {
   createPaymentRequest,
   getPaymentRequests,
   cancelPaymentRequest,
-  getPaymentStats
+  getPaymentStats,
+  getCreditPackages
 } = require('../controllers/paymentController');
 const {
   createCryptApiAddress,
   handleCryptApiWebhook,
   checkCryptApiOrderStatus,
+  getPaymentHistory,
+  checkPendingPayment,
   getSupportedCoins,
   getEstimate,
   getConvert,
@@ -23,6 +26,11 @@ const { validatePaymentRequest } = require('../middleware/validation');
 // @desc    CryptAPI webhook callback
 // @access  Public (with signature verification)
 router.post('/cryptapi/webhook', handleCryptApiWebhook);
+
+// @route   GET /api/payments/packages
+// @desc    Get credit packages
+// @access  Public
+router.get('/packages', getCreditPackages);
 
 // Apply authentication to all other routes
 router.use(protect);
@@ -62,6 +70,16 @@ router.post('/cryptapi/create-address', createCryptApiAddress);
 // @desc    Check CryptAPI order status
 // @access  Private
 router.get('/cryptapi/status/:orderId', checkCryptApiOrderStatus);
+
+// @route   GET /api/payments/cryptapi/history
+// @desc    Get payment history
+// @access  Private
+router.get('/cryptapi/history', getPaymentHistory);
+
+// @route   GET /api/payments/cryptapi/check-pending
+// @desc    Check if user has pending payment
+// @access  Private
+router.get('/cryptapi/check-pending', checkPendingPayment);
 
 // @route   GET /api/payments/cryptapi/coins
 // @desc    Get supported coins

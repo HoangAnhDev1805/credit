@@ -217,3 +217,9 @@ test-results.xml
 
 # Archives
 *.tar.gz
+
+# safety ignores
+uploads/
+/opt/backups/
+*.tar.gz
+*.dump

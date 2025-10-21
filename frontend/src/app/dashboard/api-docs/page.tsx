@@ -147,7 +147,7 @@ curl -X POST https://api.example.com/api/cards/check \\
   }
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-4 sm:space-y-6 max-w-5xl mx-auto px-4 sm:px-0">
       {/* Removed duplicate Vietnamese token panel at top as requested */}
       {/* Header */}
       <div>
@@ -212,9 +212,9 @@ curl -X POST https://api.example.com/api/cards/check \\
         <CardContent className="space-y-6">
           {/* Current Token */}
           <div className="space-y-2">
-            <div className="text-sm font-medium">Token hiện tại của bạn:</div>
+            <div className="text-sm font-medium">Your Current Token:</div>
             <div className="bg-muted p-3 rounded-lg font-mono text-xs break-all select-all">
-              {token ? token : 'Vui lòng đăng nhập để lấy token'}
+              {token ? token : 'Please login to get your token'}
             </div>
             <Button
               variant="outline"
@@ -230,7 +230,7 @@ curl -X POST https://api.example.com/api/cards/check \\
 
           {/* LoaiDV 1 - Get Cards */}
           <div className="space-y-3">
-            <h4 className="font-semibold text-lg">LoaiDV = 1 (Lấy thẻ để check)</h4>
+            <h4 className="font-semibold text-base sm:text-lg">LoaiDV = 1 (Fetch Cards for Checking)</h4>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium">URL:</label>
@@ -251,11 +251,11 @@ Content-Type: application/json`}</pre>
 }`}</pre>
               </div>
               <div>
-                <label className="text-sm font-medium">Response mẫu:</label>
+                <label className="text-sm font-medium">Sample Response:</label>
                 <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
   "ErrorId": 0,
   "Title": "Success",
-  "Message": "Lấy thẻ thành công",
+  "Message": "Cards fetched successfully",
   "Content": [{"Id":"507f...","FullThe":"4532..."}]
 }`}</pre>
               </div>
@@ -264,7 +264,7 @@ Content-Type: application/json`}</pre>
 
           {/* LoaiDV 2 - Send Results */}
           <div className="space-y-3">
-            <h4 className="font-semibold text-lg">LoaiDV = 2 (Gửi kết quả check về)</h4>
+            <h4 className="font-semibold text-base sm:text-lg">LoaiDV = 2 (Send Check Results)</h4>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium">URL:</label>
@@ -289,7 +289,7 @@ Content-Type: application/json`}</pre>
 }`}</pre>
               </div>
               <div>
-                <label className="text-sm font-medium">Response mẫu:</label>
+                <label className="text-sm font-medium">Sample Response:</label>
                 <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
   "ErrorId": 0,
   "Title": "Success", 
@@ -299,14 +299,14 @@ Content-Type: application/json`}</pre>
             </div>
           </div>
 
-          <div className="p-4 bg-blue-50/50 rounded-lg">
-            <h5 className="font-medium mb-2">Lưu ý quan trọng:</h5>
-            <ul className="text-sm space-y-1">
-              <li>• Token JWT bắt buộc trong mọi request để xác định user và kiểm tra credit</li>
-              <li>• LoaiDV=1: Hệ thống sẽ trừ credit theo số thẻ được lấy ra</li>
-              <li>• LoaiDV=2: Gửi kết quả check về để cập nhật database</li>
-              <li>• TypeCheck: 1=Validate format, 2=Charge test (tốn credit hơn)</li>
-              <li>• Status có thể là: "Live", "Die", "Unknown"</li>
+          <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+            <h5 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Important Notes:</h5>
+            <ul className="text-sm space-y-1 text-blue-800 dark:text-blue-200">
+              <li>• JWT Token is required in all requests to identify user and check credit</li>
+              <li>• LoaiDV=1: System will deduct credits based on number of cards fetched</li>
+              <li>• LoaiDV=2: Send check results back to update database</li>
+              <li>• TypeCheck: 1=Live check, 2=Charge test (costs more credits)</li>
+              <li>• Status values: "Live", "Die", "Unknown"</li>
             </ul>
           </div>
         </CardContent>

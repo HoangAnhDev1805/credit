@@ -346,10 +346,77 @@ const getPaymentStats = async (req, res, next) => {
   }
 };
 
+// @desc    Get credit packages
+// @route   GET /api/payments/packages
+// @access  Public
+const getCreditPackages = async (req, res, next) => {
+  console.log('=== GET CREDIT PACKAGES CALLED ===');
+  logger.info('=== GET CREDIT PACKAGES CALLED ===');
+  
+  try {
+    const mongoose = require('mongoose');
+    console.log('Mongoose readyState:', mongoose.connection.readyState);
+    
+    // Wait for mongoose to be ready
+    if (mongoose.connection.readyState !== 1) {
+      logger.warn('[Get Packages] Waiting for database connection...');
+      console.log('[Get Packages] Waiting for database connection...');
+      await new Promise((resolve) => {
+        if (mongoose.connection.readyState === 1) {
+          resolve();
+        } else {
+          mongoose.connection.once('connected', resolve);
+        }
+      });
+    }
+    
+    // Direct query to avoid model caching issues
+    const db = mongoose.connection.db;
+    if (!db) {
+      throw new Error('Database not connected');
+    }
+    
+    console.log('[Get Packages] DB Name:', db.databaseName);
+    console.log('[Get Packages] Querying creditpackages collection...');
+    logger.info('[Get Packages] Querying creditpackages collection...');
+    
+    // Log all collections
+    const collections = await db.listCollections().toArray();
+    console.log('[Get Packages] Available collections:', collections.map(c => c.name));
+    
+    const packages = await db.collection('creditpackages')
+      .find({ isActive: true })
+      .sort({ displayOrder: 1, amount: 1 })
+      .toArray();
+    
+    console.log(`[Get Packages] Found ${packages.length} packages from query`);
+    logger.info(`[Get Packages] Found ${packages.length} packages`);
+    
+    if (packages.length > 0) {
+      console.log(`[Get Packages] First package:`, packages[0]);
+      logger.info(`[Get Packages] First package:`, JSON.stringify(packages[0]));
+    }
+    
+    return res.status(200).json({
+      success: true,
+      count: packages.length,
+      data: packages
+    });
+  } catch (error) {
+    console.error('[Get Packages] Error:', error);
+    logger.error('[Get Packages] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch packages'
+    });
+  }
+};
+
 module.exports = {
   getPaymentMethods,
   createPaymentRequest,
   getPaymentRequests,
   cancelPaymentRequest,
-  getPaymentStats
+  getPaymentStats,
+  getCreditPackages
 };

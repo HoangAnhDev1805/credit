@@ -27,7 +27,8 @@ import {
   Zap,
   Shield,
   BarChart3,
-  Wallet
+  Wallet,
+  Loader2
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useI18n } from "@/components/I18nProvider"
@@ -38,19 +39,14 @@ interface CheckResult {
   card: string
   status: "Live" | "Dead" | "Error" | "Unknown" | "Checking"
   response?: string
-  fromCache?: boolean
 }
 
-// Danh sách các gate phổ biến
-const GATE_OPTIONS = [
-  { value: "cvv_veo", label: "CVV Veo [Stripe Auth] - All Cards" },
-  { value: "cvv_stripe", label: "CVV Stripe Auth - Check Bill - All Cards" },
-  { value: "ccn_crumbl", label: "CCN Crumbl [Stripe] Auth - All Cards" },
-  { value: "ccv_doordash", label: "CCV DoorDash Auth - All Cards" },
-  { value: "ccn_braintree", label: "CCN Braintree AVS - All Cards" },
-  { value: "ccv_amazon", label: "CCV Amazon Auth - Require Account - All Cards" },
-  { value: "killer_luxcheck", label: "Killer LuxCheck - 20 Credits" },
-]
+interface Gate {
+  id: string
+  name: string
+  typeCheck: number
+  description?: string
+}
 
 export default function CheckerPage() {
   const { toast } = useToast()
@@ -62,13 +58,15 @@ export default function CheckerPage() {
 
   // Input & session
   const [cardsInput, setCardsInput] = useState("")
-  const [selectedGate, setSelectedGate] = useState("cvv_veo")
+  const [selectedGate, setSelectedGate] = useState<string>("") // Will be set from gates
+  const [gates, setGates] = useState<Gate[]>([])
   const [isChecking, setIsChecking] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [cardCache, setCardCache] = useState<Map<string, CheckResult>>(new Map())
 
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
+  const [balanceLoading, setBalanceLoading] = useState(true)
   const [pricePerCard, setPricePerCard] = useState<number>(0)
   const [pricingTiers, setPricingTiers] = useState<Array<{ min: number; max: number | null; total: number | null; pricePerCard?: number }>>([])
 
@@ -92,6 +90,29 @@ export default function CheckerPage() {
     return results.filter((r) => r.status.toLowerCase() === filter)
   }, [results, filter])
 
+  // Report result to /api/checkcc with LoaiDV=2
+  const reportToCheckCC = async (cardId: string, status: string, response?: string) => {
+    try {
+      // Map status to checkcc Status code
+      let statusCode = 4 // unknown
+      if (status === 'live') statusCode = 2
+      else if (status === 'die') statusCode = 3
+      else if (status === 'error') statusCode = 4
+
+      await apiClient.post('/checkcc', {
+        LoaiDV: 2,
+        Device: 'WebDashboard',
+        Id: cardId,
+        Status: statusCode,
+        State: 0,
+        From: 1, // Web dashboard
+        Msg: response || ''
+      })
+    } catch (error) {
+      console.error('Report to checkcc error:', error)
+    }
+  }
+
 
   const checkingCount = useMemo(() => results.filter(r => r.status === 'Checking').length, [results])
   const processedCount = useMemo(() => results.filter(r => r.status !== 'Checking').length, [results])
@@ -100,54 +121,78 @@ export default function CheckerPage() {
   // Polling
   const pollRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Load balance (best-effort) on mount
+  // Load balance IMMEDIATELY from auth store, then load other data in parallel
   useEffect(() => {
+    // IMMEDIATELY set balance from auth store if available (instant display)
+    if (user?.balance != null) {
+      setBalance(user.balance)
+      setBalanceLoading(false)
+    }
+    
     ;(async () => {
       try {
-        const me = await apiClient.getMe().catch(() => null as any)
-        const user = (me as any)?.data?.data?.user
-        if (user?.balance != null) setBalance(user.balance)
-      } catch {}
-
-      try {
-        // Ensure token set if available (for admin route)
-        try {
-          const t = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : ''
-          if (t) apiClient.setToken(t)
-        } catch {}
-
-        // Prefer admin tiers when authenticated (reflects DB exactly), fallback to public tiers
-        let tiers: any[] | null = null
-        if (user) {
-          const adminResp = await apiClient.get('/admin/pricing-tiers').catch(() => null as any)
-          const adminTiers = (adminResp as any)?.data?.data?.tiers
-          if (Array.isArray(adminTiers)) {
-            tiers = adminTiers.map((t: any) => ({
-              min: t.minCards,
-              max: t.maxCards === null ? null : t.maxCards,
-              pricePerCard: Number(t.pricePerCard || 0),
-              total: t.maxCards === null ? null : Math.round(Number(t.pricePerCard || 0) * Number(t.maxCards))
-            }))
+        // Load gates and pricing in parallel (don't wait for balance)
+        const [gatesRes, publicTiersRes, adminTiersRes] = await Promise.all([
+          apiClient.get('/gates').catch(() => null),
+          apiClient.get('/config/pricing-tiers').catch(() => null),
+          user ? apiClient.get('/admin/pricing-tiers').catch(() => null) : Promise.resolve(null)
+        ])
+        
+        // Refresh balance in background (update if changed)
+        apiClient.getMe().then((meRes) => {
+          const userData = (meRes as any)?.data?.data?.user
+          if (userData?.balance != null) setBalance(userData.balance)
+        }).catch(() => {})
+        
+        // Process gates
+        if (gatesRes?.data && gatesRes.data.success) {
+          const gatesData = gatesRes.data.data?.gates || []
+          setGates(gatesData)
+          
+          // Find gate1 or fallback to first gate
+          const gate1 = gatesData.find((g: Gate) => g.id === 'gate1')
+          if (gate1) {
+            setSelectedGate(gate1.id)
+          } else if (gatesData.length > 0) {
+            setSelectedGate(gatesData[0].id)
           }
         }
-
-        if (!tiers) {
-          const tiersResp = await apiClient.get('/config/pricing-tiers').catch(() => null as any)
-          const publicTiers = (tiersResp as any)?.data?.data?.tiers
-          if (Array.isArray(publicTiers)) tiers = publicTiers
+        
+        // Process pricing tiers - prefer admin, fallback to public
+        const adminTiers = (adminTiersRes as any)?.data?.data?.tiers
+        const publicTiers = (publicTiersRes as any)?.data?.data?.tiers
+        
+        let tiers: any[] | null = null
+        if (Array.isArray(adminTiers)) {
+          tiers = adminTiers.map((t: any) => ({
+            min: t.minCards,
+            max: t.maxCards === null ? null : t.maxCards,
+            pricePerCard: Number(t.pricePerCard || 0),
+            total: t.maxCards === null ? null : Math.round(Number(t.pricePerCard || 0) * Number(t.maxCards))
+          }))
+        } else if (Array.isArray(publicTiers)) {
+          tiers = publicTiers
+        } else {
+          // Final fallback to default pricing
+          tiers = [{ min: 0, max: null, total: null, pricePerCard: 0.1 }]
         }
-
+        
         if (Array.isArray(tiers)) setPricingTiers(tiers)
-      } catch {}
+        
+      } catch (err) {
+        console.error('Load checker data error:', err)
+      } finally {
+        setBalanceLoading(false)
+      }
 
-      // Listen for balance changes via Socket.IO (fallback to polling if unavailable)
+      // Listen for balance changes via Socket.IO
       socketOn('user:balance-changed', (userData: any) => {
         if (userData?.balance != null) {
           setBalance(userData.balance)
         }
       })
     })()
-  }, [])
+  }, [user?.balance])
 
   // Helpers
   const validateLine = (line: string) => {
@@ -209,20 +254,63 @@ export default function CheckerPage() {
 
     setIsChecking(true)
 
-    // Tạo initial results với cache check
+    // Check database trước để lấy kết quả đã check
+    let dbCheckedCards: any[] = []
+    try {
+      const cardNumbers = valid.map(line => line.split("|")[0])
+      const dbCheckRes = await apiClient.post('/checker/check-existing', { cardNumbers })
+      if (dbCheckRes.data && dbCheckRes.data.success) {
+        dbCheckedCards = dbCheckRes.data.data || []
+      }
+    } catch (err) {
+      console.error('Failed to check existing cards (skipping cache):', err)
+      // Continue without cache - not a critical error
+    }
+
+    // Map database results by card number
+    // Trả TẤT CẢ cards có zennoposter=1: live/die/error/unknown
+    const dbResultsMap = new Map()
+    dbCheckedCards.forEach((card: any) => {
+      if (card.fullCard && card.status) {
+        const status = card.status === 'live' ? 'Live' :
+                      card.status === 'die' ? 'Dead' :
+                      card.status === 'error' ? 'Error' : 'Unknown'
+        dbResultsMap.set(card.fullCard, {
+          status,
+          response: card.errorMessage || card.response || ''
+        })
+      }
+    })
+
+    // Tạo initial results với cache check và DB check
     const initialResults: CheckResult[] = []
     const cardsToCheck: Card[] = []
 
     valid.forEach((line, index) => {
       const cardKey = line.trim()
       const cached = cardCache.get(cardKey)
+      const dbResult = dbResultsMap.get(cardKey)
 
       if (cached) {
         // Sử dụng kết quả từ cache
         initialResults.push({
           ...cached,
+          id: `${Date.now()}-${index}`
+        })
+      } else if (dbResult) {
+        // Sử dụng kết quả từ database
+        initialResults.push({
           id: `${Date.now()}-${index}`,
-          fromCache: true
+          card: line,
+          status: dbResult.status as any,
+          response: dbResult.response
+        })
+        // Lưu vào cache để lần sau nhanh hơn
+        cardCache.set(cardKey, {
+          id: `${Date.now()}-${index}`,
+          card: line,
+          status: dbResult.status as any,
+          response: dbResult.response
         })
       } else {
         // Thẻ mới cần check
@@ -238,8 +326,7 @@ export default function CheckerPage() {
         initialResults.push({
           id: `${Date.now()}-${index}`,
           card: line,
-          status: "Checking",
-          fromCache: false
+          status: "Checking"
         })
       }
     })
@@ -248,7 +335,7 @@ export default function CheckerPage() {
     setStats((s) => ({
       ...s,
       total: valid.length,
-      progress: Math.round((initialResults.filter(r => r.fromCache).length / valid.length) * 100)
+      progress: 0 // Will be updated by polling
     }))
 
     // Nếu không có thẻ mới cần check, dừng lại
@@ -259,7 +346,9 @@ export default function CheckerPage() {
     }
 
     try {
-      const res = await apiClient.startCheck({ cards: cardsToCheck, checkType: 1, gate: selectedGate })
+      // Convert selectedGate (typeCheck number as string) to number
+      const typeCheckValue = parseInt(selectedGate) || 1
+      const res = await apiClient.startCheck({ cards: cardsToCheck, checkType: typeCheckValue, gate: selectedGate })
       if (!res.success) throw new Error(res.message || 'Check started')
 
       const data: any = res.data
@@ -289,23 +378,35 @@ export default function CheckerPage() {
                 )
 
                 if (resultIndex !== -1) {
-                  const status = apiResult.status === 'live' ? 'Live' :
-                               apiResult.status === 'die' ? 'Dead' :
-                               apiResult.status === 'error' ? 'Error' : 'Unknown'
+                  // Only update if we have a definitive status (not pending/checking)
+                  const apiStatus = apiResult.status?.toLowerCase()
+                  if (apiStatus && apiStatus !== 'pending' && apiStatus !== 'checking') {
+                    const status = apiStatus === 'live' ? 'Live' :
+                                 apiStatus === 'die' ? 'Dead' :
+                                 apiStatus === 'error' ? 'Error' : 'Unknown'
 
-                  newResults[resultIndex] = {
-                    ...newResults[resultIndex],
-                    status: status as any,
-                    response: apiResult.response
+                    newResults[resultIndex] = {
+                      ...newResults[resultIndex],
+                      status: status as any,
+                      response: apiResult.response || ''
+                    }
+
+                    // Lưu vào cache
+                    newCache.set(cardLine, {
+                      id: newResults[resultIndex].id,
+                      card: cardLine,
+                      status: status as any,
+                      response: apiResult.response || ''
+                    })
+
+                    // Report result to /api/checkcc with LoaiDV=2 (optional, if needed)
+                    if (apiResult.cardId) {
+                      reportToCheckCC(apiResult.cardId, apiResult.status, apiResult.response).catch(err => {
+                        console.error('Failed to report to checkcc:', err)
+                      })
+                    }
                   }
-
-                  // Lưu vào cache
-                  newCache.set(cardLine, {
-                    id: newResults[resultIndex].id,
-                    card: cardLine,
-                    status: status as any,
-                    response: apiResult.response
-                  })
+                  // If status is pending/checking or missing, keep showing "Checking"
                 }
               })
 
@@ -346,24 +447,50 @@ export default function CheckerPage() {
     }
   }
 
+  const stopChecking = async () => {
+    if (!sessionId) return
+    if (!isChecking) return
+    try {
+      // Stop checking on backend
+      await apiClient.stopCheck({ sessionId })
+      
+      // Stop polling
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+      
+      // Update frontend: Change all "Checking" cards to "Unknown"
+      setResults(prevResults => {
+        return prevResults.map(r => {
+          if (r.status === 'Checking') {
+            return {
+              ...r,
+              status: 'Unknown',
+              response: 'Stopped by user'
+            }
+          }
+          return r // Keep existing results (Live/Dead/Error) unchanged
+        })
+      })
+      
+      setIsChecking(false)
+      toast({ title: 'Success', description: 'Checking stopped', variant: "default" })
+    } catch (err) {
+      console.error('Stop checking error:', err)
+      setIsChecking(false)
+    }
+  }
+
   const handleStop = async () => {
-    setIsChecking(false)
-    if (sessionId) {
-      try {
-        await apiClient.stopCheck(sessionId)
-      } catch {}
-    }
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-    setIsChecking(false)
+    await stopChecking()
   }
 
   const handleClear = () => {
     setResults([])
     setCardsInput("")
     setStats({ live: 0, dead: 0, error: 0, unknown: 0, total: 0, progress: 0, successRate: 0, liveRate: 0 })
+    setCardCache(new Map()) // Clear memory cache
   }
 
   const handleCopy = async () => {
@@ -423,7 +550,14 @@ export default function CheckerPage() {
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="flex items-center gap-1 text-xs sm:text-sm px-2 py-1">
             <Wallet className="h-3 w-3" />
-            <span className="whitespace-nowrap">{balance.toLocaleString()} Credits</span>
+            {balanceLoading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span className="text-xs">Loading credits...</span>
+              </span>
+            ) : (
+              <span className="whitespace-nowrap">{balance.toLocaleString()} Credits</span>
+            )}
           </Badge>
         </div>
       </div>
@@ -445,17 +579,22 @@ export default function CheckerPage() {
             <CardContent>
               {/* Gate Selection */}
               <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">Chọn Gate</label>
+                <label className="block text-sm font-medium mb-2">Chọn GATE</label>
                 <select
                   value={selectedGate}
                   onChange={(e) => setSelectedGate(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={gates.length === 0}
                 >
-                  {GATE_OPTIONS.map((gate) => (
-                    <option key={gate.value} value={gate.value}>
-                      {gate.label}
-                    </option>
-                  ))}
+                  {gates.length === 0 ? (
+                    <option value="">Loading gates...</option>
+                  ) : (
+                    gates.map((gate) => (
+                      <option key={gate.id} value={String(gate.typeCheck)}>
+                        {gate.name} {gate.description ? `- ${gate.description}` : ''}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -471,41 +610,47 @@ export default function CheckerPage() {
                 {(() => {
                   const hasCards = cardsInput.trim().length > 0;
                   const hasGate = !!selectedGate;
+                  
                   let needsDisable = !hasCards || !hasGate || isChecking;
                   
                   // Tính credit cần thiết
-                  if (!needsDisable && !isChecking) {
+                  if (!needsDisable && !isChecking && hasCards) {
                     const lines = cardsInput.split("\n").map(s => s.trim()).filter(Boolean);
                     const valid = lines.filter(validateLine);
                     
-                    let requiredCredits = 0;
-                    if (pricingTiers && pricingTiers.length > 0) {
-                      for (const tier of pricingTiers) {
-                        const tierMin = tier.min || 0;
-                        const tierMax = tier.max === null ? valid.length : tier.max;
-                        const tierPrice = tier.pricePerCard || 0;
-                        
-                        if (valid.length >= tierMin && valid.length <= tierMax) {
-                          requiredCredits = tierPrice * valid.length;
-                          break;
-                        }
-                      }
-                    } else {
-                      requiredCredits = pricePerCard * valid.length;
-                    }
-                    
-                    if (balance < requiredCredits) {
+                    if (valid.length === 0) {
                       needsDisable = true;
+                    } else {
+                      let requiredCredits = 0;
+                      if (pricingTiers && pricingTiers.length > 0) {
+                        for (const tier of pricingTiers) {
+                          const tierMin = tier.min || 0;
+                          const tierMax = tier.max === null ? valid.length : tier.max;
+                          const tierPrice = tier.pricePerCard || 0;
+                          
+                          if (valid.length >= tierMin && valid.length <= tierMax) {
+                            requiredCredits = tierPrice * valid.length;
+                            break;
+                          }
+                        }
+                      } else {
+                        requiredCredits = pricePerCard * valid.length;
+                      }
+                      
+                      if (balance < requiredCredits) {
+                        needsDisable = true;
+                      }
                     }
                   }
                   
                   return (
-                    <>
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <Button 
                         onClick={isChecking ? handleStop : handleStart} 
                         size="lg" 
                         variant={isChecking ? 'destructive' : 'default'}
-                        disabled={needsDisable}
+                        disabled={isChecking ? false : needsDisable}
+                        className="flex-1"
                       >
                         {isChecking ? (
                           <Square className="mr-2 h-4 w-4" />
@@ -514,13 +659,13 @@ export default function CheckerPage() {
                         )}
                         {isChecking ? t('checker.stopCheck') : t('checker.startCheck')}
                       </Button>
-                    </>
+                      <Button onClick={handleClear} variant="outline" size="lg" className="w-full sm:w-auto text-xs sm:text-sm">
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t('checker.clearAll')}
+                      </Button>
+                    </div>
                   );
                 })()}
-                <Button onClick={handleClear} variant="outline" size="lg" className="w-full sm:w-auto text-xs sm:text-sm">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {t('checker.clearAll')}
-                </Button>
               </div>
             </CardContent>
           </UICard>
@@ -533,33 +678,30 @@ export default function CheckerPage() {
                   <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5" />
                   {t('checker.results.title')}
                 </CardTitle>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={filter}
                     onChange={(e) => setFilter(e.target.value as any)}
-                    className="px-2 sm:px-3 py-1 sm:py-1.5 border rounded-md text-xs sm:text-sm"
+                    className="px-3 py-1.5 border rounded-md text-sm flex-shrink-0"
                   >
-                    <option value="all">{t('checker.filterAll')}</option>
-                    <option value="live">{t('checker.filterLive')}</option>
-                    <option value="dead">{t('checker.filterDead')}</option>
-                    <option value="unknown">{t('checker.filterUnknown')}</option>
-                    <option value="error">{t('checker.filterError')}</option>
+                    <option value="all">{t('checker.filterAll') || 'All'}</option>
+                    <option value="live">{t('checker.filterLive') || 'Live'}</option>
+                    <option value="dead">{t('checker.filterDead') || 'Dead'}</option>
+                    <option value="unknown">{t('checker.filterUnknown') || 'Unknown'}</option>
+                    <option value="error">{t('checker.filterError') || 'Error'}</option>
                     <option value="checking">Checking</option>
                   </select>
-                  <Button onClick={handleCopy} variant="outline" size="sm" className="text-xs sm:text-sm w-full sm:w-auto">
-                    <Copy className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-                    <span className="hidden sm:inline">{t('checker.copyResults')}</span>
-                    <span className="sm:hidden">Copy</span>
+                  <Button onClick={handleCopy} variant="outline" size="sm" className="flex-shrink-0">
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy
                   </Button>
-                  <Button onClick={exportCheckedTxt} variant="outline" size="sm" className="text-xs sm:text-sm w-full sm:w-auto">
-                    <Download className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-                    <span className="hidden md:inline">{t('checker.downloadResults')} TXT</span>
-                    <span className="md:hidden">TXT</span>
+                  <Button onClick={exportCheckedTxt} variant="outline" size="sm" className="flex-shrink-0">
+                    <Download className="mr-2 h-4 w-4" />
+                    TXT
                   </Button>
-                  <Button onClick={exportCheckedCsv} variant="outline" size="sm" className="text-xs sm:text-sm w-full sm:w-auto">
-                    <Download className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-                    <span className="hidden md:inline">{t('checker.downloadResults')} CSV</span>
-                    <span className="md:hidden">CSV</span>
+                  <Button onClick={exportCheckedCsv} variant="outline" size="sm" className="flex-shrink-0 hidden sm:inline-flex">
+                    <Download className="mr-2 h-4 w-4" />
+                    CSV
                   </Button>
                 </div>
               </div>
@@ -570,11 +712,6 @@ export default function CheckerPage() {
                   <div key={r.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <span className="font-mono text-sm">{r.card}</span>
                     <div className="flex items-center gap-2">
-                      {r.fromCache && (
-                        <Badge variant="outline" className="text-xs">
-                          Cache
-                        </Badge>
-                      )}
                       <Badge
                         variant={
                           r.status === "Live" ? "default" :
@@ -618,29 +755,30 @@ export default function CheckerPage() {
               {pricingTiers.length === 0 ? (
                 <div className="text-sm text-muted-foreground">{t('checker.pricing.loading')}</div>
               ) : (
-                <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-                  {pricingTiers.map((tier, idx) => (
-                    <div key={idx} className="border rounded-lg p-4 space-y-2">
-                      <div className="text-xs sm:text-sm text-muted-foreground">
-                        {tier.max ? (
-                          <>
-                            {t('checker.pricing.upTo')} {tier.max.toLocaleString()} {t('checker.pricing.cards')}
-                          </>
-                        ) : (
-                          <>
-                            {t('checker.pricing.upTo')} ∞ {t('checker.pricing.cards')}
-                          </>
-                        )}
-                      </div>
-                      {tier.total != null ? (
-                        <div className="text-xl sm:text-2xl font-bold">${String(tier.total).toLocaleString()}</div>
-                      ) : (
-                        <div className="text-xl sm:text-2xl font-bold">
-                          {tier.pricePerCard ?? 0} Credits/card
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {pricingTiers.slice(0, 6).map((tier, idx) => {
+                    const rangeText = tier.min && tier.max 
+                      ? `${tier.min}-${tier.max} ${t('checker.pricing.cards') || 'cards'}`
+                      : tier.max 
+                      ? `1-${tier.max} ${t('checker.pricing.cards') || 'cards'}`
+                      : `${tier.min || 501}+ ${t('checker.pricing.cards') || 'cards'}`;
+                    
+                    // Show total credits for the tier if available, otherwise pricePerCard
+                    const creditsDisplay = tier.total != null && tier.total > 0
+                      ? `${tier.total} Credits`
+                      : `${Number(tier.pricePerCard ?? 0).toFixed(2)} Credits/card`;
+                    
+                    return (
+                      <div key={idx} className="border rounded-lg p-3 sm:p-4 space-y-2">
+                        <div className="text-xs sm:text-sm text-muted-foreground">
+                          {rangeText}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        <div className="text-lg sm:text-xl font-bold">
+                          {creditsDisplay}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

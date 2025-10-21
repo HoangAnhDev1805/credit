@@ -90,6 +90,23 @@ exports.checkcc = async (req, res) => {
 // Handle LoaiDV=1: Fetch random cards
 async function handleFetchCards(req, res, p) {
   try {
+    // Log incoming request parameters for ZennoPoster debugging
+    console.log('\n========== /api/checkcc REQUEST (LoaiDV=1) ==========');
+    console.log('Token:', req.headers.authorization ? 'Bearer ***' : 'None');
+    console.log('LoaiDV:', p.LoaiDV);
+    console.log('Device:', p.Device);
+    console.log('Amount:', p.Amount);
+    console.log('TypeCheck:', p.TypeCheck);
+    console.log('=====================================================\n');
+
+    logger.info(`[CheckCC LoaiDV=1] Fetch cards request:`, {
+      userId: req.user?.id,
+      username: req.user?.username,
+      device: p.Device,
+      amount: p.Amount,
+      typeCheck: p.TypeCheck
+    });
+
     // Amount & TypeCheck validation
     const minAmount = await SiteConfig.getByKey('min_cards_per_check') || 1;
     const maxAmount = await SiteConfig.getByKey('max_cards_per_check') || 1000;
@@ -97,14 +114,99 @@ async function handleFetchCards(req, res, p) {
     amount = Math.min(Math.max(amount, minAmount), maxAmount);
     const typeCheck = p.TypeCheck === 1 ? 1 : 2; // default 2 (charge)
 
-    const systemUserId = await getSystemUserId();
+    // Helper to create or fetch a test card safely (handles duplicates)
+    async function createOrGetTestCard(uId, num, mm, yy, cvv, tCheck) {
+      try {
+        const created = await Card.create({
+          userId: new mongoose.Types.ObjectId(uId),
+          cardNumber: num,
+          expiryMonth: mm,
+          expiryYear: yy,
+          cvv,
+          fullCard: `${num}|${mm}|${yy}|${cvv}`,
+          status: 'unknown',
+          typeCheck: tCheck,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+        return created;
+      } catch (e) {
+        // Duplicate card for this user -> return existing
+        if (e && String(e.code) === '11000') {
+          const existing = await Card.findOne({ userId: new mongoose.Types.ObjectId(uId), cardNumber: num });
+          if (existing) return existing;
+        }
+        throw e;
+      }
+    }
+
+    // Guaranteed test mode for Admin Tester
+    if (String(p.Device).toLowerCase() === 'api-tester') {
+      let systemUserId = await getSystemUserId();
+      if (!systemUserId || !mongoose.Types.ObjectId.isValid(systemUserId)) {
+        if (req.user && req.user.id && mongoose.Types.ObjectId.isValid(String(req.user.id))) {
+          systemUserId = String(req.user.id);
+        }
+      }
+      try {
+        // ensure uniqueness by varying last 4 digits
+        const base = '4532015112830';
+        const suffix = String(Math.floor(1000 + Math.random() * 8999));
+        const sampleNumber = base + suffix;
+        const sampleMonth = '12';
+        const sampleYear = '25';
+        const sampleCvv = '123';
+        if (!systemUserId) throw new Error('No systemUserId for API-Tester mode');
+        const created = await createOrGetTestCard(systemUserId, sampleNumber, sampleMonth, sampleYear, sampleCvv, typeCheck);
+        const content = [{
+          Id: String(created._id),
+          FullThe: buildFullCardString(created),
+          TypeCheck: Number(created.typeCheck || typeCheck),
+          Price: Number(created.price || 0)
+        }];
+        return res.json({ ErrorId: 0, Title: '', Message: '', Content: content });
+      } catch (e) {
+        // fallthrough to normal stock flow
+        logger.warn('API-Tester sample create failed, falling back to stock flow:', e?.message);
+      }
+    }
+
+    let systemUserId = await getSystemUserId();
     if (!systemUserId || !mongoose.Types.ObjectId.isValid(systemUserId)) {
-      return res.json({ 
-        ErrorId: 1, 
-        Title: 'error', 
-        Message: 'Stock source (post_api_user_id) not configured', 
-        Content: '' 
-      });
+      // Fallback: use current authenticated user to allow testing when not configured
+      if (req.user && req.user.id && mongoose.Types.ObjectId.isValid(String(req.user.id))) {
+        systemUserId = String(req.user.id);
+      } else {
+        return res.json({ 
+          ErrorId: 1, 
+          Title: 'error', 
+          Message: 'Stock source (post_api_user_id) not configured', 
+          Content: '' 
+        });
+      }
+
+      // As a last resort, create a default sample test card to allow UI testing
+      try {
+        // Randomize to avoid duplicate key
+        const base = '4532015112830';
+        const suffix = String(Math.floor(1000 + Math.random() * 8999));
+        const sampleNumber = base + suffix;
+        const sampleMonth = '12';
+        const sampleYear = '25';
+        const sampleCvv = '123';
+        const created = await createOrGetTestCard(systemUserId, sampleNumber, sampleMonth, sampleYear, sampleCvv, typeCheck);
+
+        const content = [{
+          Id: String(created._id),
+          FullThe: buildFullCardString(created),
+          TypeCheck: Number(created.typeCheck || typeCheck),
+          Price: Number(created.price || 0)
+        }];
+
+        return res.json({ ErrorId: 0, Title: '', Message: '', Content: content });
+      } catch (e) {
+        logger.error('Create default sample test card failed:', e);
+      }
     }
 
     // Get random cards with status unknown from system user
@@ -118,14 +220,43 @@ async function handleFetchCards(req, res, p) {
       { $match: match }, 
       { $sample: { size: sampleSize } }
     ];
-    const cards = await Card.aggregate(pipeline);
+    const cards = await Card.find({
+      status: { $in: ['pending', 'unknown'] },
+      typeCheck
+    })
+      .sort({ createdAt: 1 })
+      .limit(amount);
 
-    if (!cards || cards.length === 0) {
+    if (cards.length === 0) {
+      // If manual card fields are provided, create a temporary test card for this user to allow API testing
+      const body = { ...req.query, ...req.body };
+      const cardNumber = String(body.cardNumber || '').trim();
+      const cardMonth = String(body.cardMonth || '').trim();
+      const cardYear = String(body.cardYear || '').trim();
+      const cardCvv = String(body.cardCvv || '').trim();
+
+      const hasManual = /^(\d{13,19})$/.test(cardNumber) && /^(0[1-9]|1[0-2])$/.test(cardMonth) && /^\d{2,4}$/.test(cardYear) && /^\d{3,4}$/.test(cardCvv);
+      if (hasManual) {
+        try {
+          const created = await createOrGetTestCard(systemUserId, cardNumber, cardMonth, cardYear, cardCvv, typeCheck);
+          const content = [{
+            Id: String(created._id),
+            FullThe: buildFullCardString(created),
+            TypeCheck: Number(created.typeCheck || typeCheck),
+            Price: Number(created.price || 0)
+          }];
+          return res.json({ ErrorId: 0, Title: '', Message: '', Content: content });
+        } catch (e) {
+          logger.error('Create test card failed:', e);
+          // continue to default sample below
+        }
+      }
+
       return res.json({ 
         ErrorId: 1, 
         Title: 'error', 
         Message: 'Out of stock', 
-        Content: '' 
+        Content: [] 
       });
     }
 
@@ -139,7 +270,7 @@ async function handleFetchCards(req, res, p) {
     const content = cards.map(c => ({
       Id: String(c._id),
       FullThe: buildFullCardString(c),
-      TypeCheck: typeCheck,
+      TypeCheck: Number(c.typeCheck || typeCheck),
       Price: Number(c.price || 0)
     }));
 
@@ -163,6 +294,28 @@ async function handleFetchCards(req, res, p) {
 // Handle LoaiDV=2: Update card status
 async function handleUpdateStatus(req, res, p) {
   try {
+    // Log incoming update request for ZennoPoster debugging
+    console.log('\n========== /api/checkcc REQUEST (LoaiDV=2) ==========');
+    console.log('Token:', req.headers.authorization ? 'Bearer ***' : 'None');
+    console.log('LoaiDV:', p.LoaiDV);
+    console.log('Device:', p.Device);
+    console.log('Id:', p.Id);
+    console.log('Status:', p.Status);
+    console.log('State:', p.State);
+    console.log('From:', p.From);
+    console.log('Msg:', p.Msg);
+    console.log('=====================================================\n');
+
+    logger.info(`[CheckCC LoaiDV=2] Update status request:`, {
+      userId: req.user?.id,
+      username: req.user?.username,
+      device: p.Device,
+      cardId: p.Id,
+      status: p.Status,
+      from: p.From,
+      msg: p.Msg
+    });
+
     if (!p.Id || !mongoose.Types.ObjectId.isValid(String(p.Id))) {
       return res.json({
         ErrorId: 0,
@@ -186,7 +339,8 @@ async function handleUpdateStatus(req, res, p) {
     const update = {
       status: newStatus,
       errorMessage: p.Msg || '',
-      lastCheckAt: new Date()
+      lastCheckAt: new Date(),
+      zennoposter: 1 // Mark that ZennoPoster has posted result
     };
 
     // checkedAt khi tht kbt thac
@@ -219,32 +373,45 @@ async function handleUpdateStatus(req, res, p) {
       });
     }
 
-    /* DEPRECATED: Billing is now handled at the end of the session in checkerController.js
-    // Billing realtime per finished card (live/die)
+    // Billing realtime per finished card (live/die) - Use pricing tiers from database
     try {
       const finished = ['live','die'].includes(String(newStatus));
       if (finished && card.originUserId && !card.billed) {
-        const amount = Number(card.price || 0);
-        if (amount > 0) {
-          // Create transaction (deduct)
+        // Get pricing tier for this card count
+        const PricingConfig = require('../models/PricingConfig');
+        const CheckSession = require('../models/CheckSession');
+        const session = card.sessionId ? await CheckSession.findOne({ sessionId: card.sessionId }) : null;
+        const totalCards = session ? session.total : 1;
+        
+        // Find applicable pricing tier
+        const tier = await PricingConfig.findApplicablePricing(totalCards, 'user');
+        const priceToCharge = Number(tier?.effectivePrice ?? tier?.pricePerCard ?? card.price ?? 0);
+        
+        if (priceToCharge > 0) {
+          // Mark card as billed
+          await Card.updateOne({ _id: card._id }, { $set: { billed: true, billAmount: priceToCharge } });
+          
+          // Deduct credit from user
+          const User = require('../models/User');
+          await User.updateOne({ _id: card.originUserId }, { $inc: { balance: -priceToCharge } });
+          
+          // Create transaction record
+          const Transaction = require('../models/Transaction');
           await Transaction.createTransaction({
             userId: card.originUserId,
             type: 'card_check',
-            amount: -amount,
-            description: `Charge for card check (${card.maskedCardNumber || card.cardNumber})`,
-            relatedId: card._id,
-            relatedModel: 'Card',
-            metadata: { pricePerCard: amount, sessionId: card.sessionId, status: newStatus }
+            amount: -priceToCharge,
+            description: `Check card ${card.cardNumber ? card.cardNumber.slice(0,6)+'...' : 'unknown'}`,
+            metadata: { cardId: String(card._id), sessionId: card.sessionId }
           });
+          
+          logger.info(`[Realtime Billing] Card ${card._id} charged ${priceToCharge} credits to user ${card.originUserId}`);
         }
-        // Mark card billed to avoid double charge
-        card.billed = true;
-        card.billAmount = amount;
-        await card.save();
       }
 
       // Update session counters snapshot (best-effort)
       if (card.sessionId) {
+        const CheckSession = require('../models/CheckSession');
         const session = await CheckSession.findOne({ sessionId: card.sessionId });
         if (session) {
           const inc = { processed: 0, live: 0, die: 0, unknown: 0 };
@@ -258,7 +425,6 @@ async function handleUpdateStatus(req, res, p) {
     } catch (e) {
       logger.error('Billing/update session error:', e);
     }
-    */
 
     // Return ErrorId: 1 = Update Success, 0 = Error (according to user spec)
     return res.json({

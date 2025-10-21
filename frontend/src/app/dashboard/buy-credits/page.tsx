@@ -64,9 +64,14 @@ export default function BuyCreditsPage() {
   const [conversionRate, setConversionRate] = useState(10)
 
   useEffect(() => {
-    loadMethods()
-    loadRequests()
-    fetchCreditPackages()
+    // Load all data in parallel for faster page load
+    Promise.all([
+      fetchCreditPackages(),
+      loadMethods(),
+      loadRequests()
+    ]).catch(err => {
+      console.error('Failed to load page data:', err)
+    })
   }, [])
 
 

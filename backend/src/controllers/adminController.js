@@ -291,27 +291,42 @@ const updateUser = async (req, res, next) => {
     // Update fields
     if (status) user.status = status;
     if (role) user.role = role;
-    if (balance !== undefined || addAmount !== undefined || subtractAmount !== undefined) {
-      const oldBalance = user.balance;
-      
-      // Ưu tiên add/subtract (chỉ một trong hai), nếu không có thì dùng balance tuyệt đối
-      if (typeof addAmount === 'number' && addAmount > 0) {
-        user.balance = oldBalance + addAmount;
-      } else if (typeof subtractAmount === 'number' && subtractAmount > 0) {
-        user.balance = Math.max(0, oldBalance - subtractAmount);
-      } else if (typeof balance === 'number') {
-        user.balance = Math.max(0, balance);
+    
+    // Handle balance updates
+    const oldBalance = user.balance;
+    let balanceChanged = false;
+    
+    // Ưu tiên add/subtract (chỉ một trong hai), nếu không có thì dùng balance tuyệt đối
+    if (addAmount !== undefined && addAmount !== null && addAmount !== '') {
+      const amount = Number(addAmount);
+      if (amount > 0) {
+        user.balance = oldBalance + amount;
+        balanceChanged = true;
       }
+    } else if (subtractAmount !== undefined && subtractAmount !== null && subtractAmount !== '') {
+      const amount = Number(subtractAmount);
+      if (amount > 0) {
+        user.balance = Math.max(0, oldBalance - amount);
+        balanceChanged = true;
+      }
+    } else if (balance !== undefined && balance !== null && balance !== '') {
+      user.balance = Math.max(0, Number(balance));
+      balanceChanged = true;
+    }
 
+    // Create transaction if balance changed
+    if (balanceChanged) {
       const diff = user.balance - oldBalance;
       if (diff !== 0) {
         await Transaction.create({
-          user: user._id,
+          userId: user._id,
           type: diff > 0 ? 'admin_credit' : 'admin_debit',
-          amount: Math.abs(diff),
-          description: `Admin ${diff > 0 ? 'thêm' : 'trừ'} số dư: ${Math.abs(diff)}$`,
+          amount: diff,
+          description: `Admin ${diff > 0 ? 'cộng' : 'trừ'} ${Math.abs(diff)} credits`,
+          balanceBefore: oldBalance,
+          balanceAfter: user.balance,
           status: 'completed',
-          metadata: { adminId: req.user.id, oldBalance, newBalance: user.balance }
+          metadata: { adminId: req.user.id, adminUsername: req.user.username }
         });
       }
     }
@@ -865,6 +880,9 @@ module.exports = {
     try {
       const payload = req.body || {};
       const updates = {};
+      
+      // Get io instance from app
+      const io = req.app.get('io');
       // Branding
       if (payload.logo !== undefined) updates['site_logo'] = payload.logo;
       if (payload.favicon !== undefined) updates['site_favicon'] = payload.favicon;
@@ -904,6 +922,12 @@ module.exports = {
       await SiteConfig.initializeDefaults();
       await SiteConfig.bulkUpdate(updates, req.user.id);
 
+      // Emit socket event to notify all clients about config update
+      if (io) {
+        io.emit('config:updated', { timestamp: new Date() });
+        logger.info('Emitted config:updated event via Socket.IO');
+      }
+
       res.json({
         success: true,
         message: 'Site configuration updated successfully'
@@ -941,6 +965,12 @@ module.exports = {
         { new: true, upsert: true, runValidators: true }
       );
 
+      // Emit socket event to notify all clients about config update
+      if (req.app.get('io')) {
+        req.app.get('io').emit('config:updated', { timestamp: new Date() });
+        logger.info('Emitted config:updated event via Socket.IO');
+      }
+      
       res.json({
         success: true,
         message: 'Pricing configuration updated successfully',
@@ -955,7 +985,7 @@ module.exports = {
       });
     }
   },
-  // Pricing tiers (admin)
+  // ...
   getPricingTiers: async (req, res, next) => {
     try {
       const tiers = await PricingConfig.find().sort({ minCards: 1 }).lean();

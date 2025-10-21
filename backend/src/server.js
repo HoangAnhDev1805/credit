@@ -155,6 +155,7 @@ app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/config', require('./routes/config'));
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api/post', require('./routes/post'));
+app.use('/api/gates', require('./routes/gate'));
 app.use('/api', require('./routes/checker'));
 app.use('/api', require('./routes/checkcc'));
 // Webhook alias (compat): allow /webhooks/cryptapi to hit the same handler
@@ -164,8 +165,10 @@ try {
 } catch (_) {}
 
 
-// Serve static files (uploads)
-app.use('/uploads', express.static('uploads'));
+// Serve static files (uploads) - use absolute path
+const path = require('path');
+const uploadsPath = path.join(__dirname, '../uploads');
+app.use('/uploads', express.static(uploadsPath));
 
 // API documentation endpoint
 app.get('/api/docs', (req, res) => {
@@ -218,9 +221,21 @@ function startServerWithFallback(initialPort, maxAttempts = 10) {
       attempts += 1;
       srv = app.listen(port, () => {
         logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${port}`);
-        console.log(`🚀 Server running on port ${port}`);
-                console.log(`📚 API Documentation: https://checkcc.live/api/docs`);
-        console.log(`❤️  Health Check: https://checkcc.live/api/health`);
+        
+        // Banner khởi động tiếng Việt
+        console.log('\n' + '='.repeat(70));
+        console.log('🚀  CREDIT CARD CHECKER - HỆ THỐNG KIỂM TRA THẺ TÍN DỤNG');
+        console.log('='.repeat(70));
+        console.log(`📡  Server đang chạy trên cổng: ${port}`);
+        console.log(`🌐  Môi trường: ${process.env.NODE_ENV || 'development'}`);
+        console.log(`📚  API Documentation: https://checkcc.live/api/docs`);
+        console.log(`❤️   Health Check: https://checkcc.live/api/health`);
+        console.log('─'.repeat(70));
+        console.log('👨‍💻  Phát triển bởi: Dev Hoàng Anh');
+        console.log('📞  Liên hệ: 0869.575.664');
+        console.log('📧  Email: hoanganhdev1805@gmail.com');
+        console.log('='.repeat(70) + '\n');
+        
         // Graceful shutdown
         gracefulShutdown(srv);
         resolve(srv);

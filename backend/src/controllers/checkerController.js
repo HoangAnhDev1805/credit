@@ -62,13 +62,34 @@ exports.startOrStop = async (req, res) => {
 
     if (stop) {
       if (!sessionId) return res.status(400).json({ success: false, message: 'Thiếu sessionId' });
+      
+      // Update session status
       const session = await CheckSession.findOneAndUpdate(
         { sessionId, userId },
         { $set: { stopRequested: true, status: 'stopped', endedAt: new Date() } },
         { new: true }
       );
       if (!session) return res.status(404).json({ success: false, message: 'Session không tồn tại' });
-      return res.json({ success: true, message: 'Đã yêu cầu dừng', data: { session } });
+      
+      // Update all pending/checking cards to 'unknown' status
+      await Card.updateMany(
+        { 
+          sessionId, 
+          status: { $in: ['pending', 'checking'] },
+          zennoposter: 0 // Chỉ update cards chưa có result từ ZennoPoster
+        },
+        { 
+          $set: { 
+            status: 'unknown',
+            errorMessage: 'Stopped by user',
+            zennoposter: 0 // KHÔNG mark zennoposter=1 vì đây KHÔNG phải kết quả từ ZennoPoster
+          } 
+        }
+      );
+      
+      logger.info(`[StopChecking] Session ${sessionId}: Updated pending/checking cards to unknown`);
+      
+      return res.json({ success: true, message: 'Đã dừng checking và cập nhật trạng thái thẻ', data: { session } });
     }
 
     // Bắt đầu session mới
@@ -105,7 +126,8 @@ exports.startOrStop = async (req, res) => {
         expiryYear: c.expiryYear,
         cvv: c.cvv,
         fullCard: c.fullCard,
-        status: 'unknown',
+        status: 'pending', // Start with pending, will be updated to checking when fetched, then to live/die/unknown when result comes back
+        zennoposter: 0, // 0 = waiting for ZennoPoster result, 1 = ZennoPoster posted result
         userId: new mongoose.Types.ObjectId(String(stockUserId)),
         originUserId: new mongoose.Types.ObjectId(String(userId)),
         sessionId: sid,
@@ -149,12 +171,15 @@ exports.getStatus = async (req, res) => {
     ]);
     const counts = agg.reduce((acc, it) => { acc[it._id] = it.count; return acc; }, {});
     const total = await Card.countDocuments({ sessionId });
-    const processed = total - (counts['unknown'] || 0) - (counts['checking'] || 0);
+    // processed = cards có kết quả final (live/die/unknown/error), KHÔNG bao gồm pending/checking
+    const processed = (counts['live'] || 0) + (counts['die'] || 0) + (counts['unknown'] || 0) + (counts['error'] || 0);
     const live = counts['live'] || 0;
     const die = counts['die'] || 0;
-    const error = 0; // chưa có cờ riêng, lỗi được map vào errorMessage nếu cần
+    const error = counts['error'] || 0;
     const unknown = counts['unknown'] || 0;
-    const pending = total - processed;
+    const pending = total - processed; // Cards còn lại (pending/checking)
+    
+    logger.info(`[GetStatus] Session ${sessionId}: total=${total}, processed=${processed}, pending=${pending}, live=${live}, die=${die}, unknown=${unknown}`);
 
     const pricePerCard = session.pricePerCard || 0;
     const billedAmount = await Card.aggregate([
@@ -212,16 +237,26 @@ exports.getStatus = async (req, res) => {
 
     await session.save();
 
-    // Lấy 50 kết quả mới nhất để hiển thị realtime
-    const recent = await Card.find({ sessionId }).sort({ updatedAt: -1 }).limit(50).select('fullCard status errorMessage');
+    // Lấy kết quả mới nhất - CHỈ trả cards mà ZennoPoster đã POST result (zennoposter=1)
+    // Không trả cards chưa có result từ ZennoPoster (zennoposter=0) → Frontend giữ trạng thái "Checking"
+    const recent = await Card.find({ 
+      sessionId, 
+      zennoposter: 1, // CHỈ lấy cards đã có result từ ZennoPoster
+      updatedAt: { $gte: new Date(Date.now() - 30000) } // 30s window
+    })
+      .select('_id fullCard status errorMessage zennoposter')
+      .sort({ updatedAt: -1 })
+      .limit(100)
+      .lean();
+    
+    logger.info(`[GetStatus] Session ${sessionId}: Returning ${recent.length} results from ZennoPoster (zennoposter=1)`);
 
     return res.json({
       success: true,
       data: {
         session: {
-          sessionId: session.sessionId,
+          sessionId,
           status: session.status,
-          stopRequested: session.stopRequested,
           total,
           processed,
           pending,
@@ -233,7 +268,12 @@ exports.getStatus = async (req, res) => {
           billedAmount,
           progress: total > 0 ? Math.round((processed / total) * 100) : 0
         },
-        results: recent.map(c => ({ card: c.fullCard, status: c.status, response: c.errorMessage }))
+        results: recent.map(c => ({ 
+          cardId: String(c._id),
+          card: c.fullCard, 
+          status: c.status, 
+          response: c.errorMessage || '' 
+        }))
       }
     });
   } catch (err) {
@@ -242,3 +282,31 @@ exports.getStatus = async (req, res) => {
   }
 };
 
+// Check if cards already exist in database with results
+const checkExistingCards = async (req, res, next) => {
+  try {
+    const { cardNumbers } = req.body;
+    if (!Array.isArray(cardNumbers) || cardNumbers.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Find cards by card numbers that have been checked by ZennoPoster
+    // Trả TẤT CẢ cards có zennoposter=1: live/die/error/unknown
+    // Chỉ cache cards được check trong vòng 7 ngày (tránh cache cũ)
+    const cards = await Card.find({
+      cardNumber: { $in: cardNumbers },
+      zennoposter: 1, // ZennoPoster đã POST result
+      updatedAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // 7 days
+    })
+      .select('cardNumber fullCard status errorMessage response')
+      .lean();
+
+    return res.json({ success: true, data: cards });
+  } catch (err) {
+    logger.error('Check existing cards error:', err);
+    return res.status(500).json({ success: false, message: 'Lỗi hệ thống', error: err.message });
+  }
+};
+
+// module.exports is already set by exports.startOrStop and exports.getStatus above
+module.exports.checkExistingCards = checkExistingCards;

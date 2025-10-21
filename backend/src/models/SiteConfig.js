@@ -122,8 +122,8 @@ siteConfigSchema.virtual('displayLabel').get(function() {
     .join(' ');
 });
 
-// Index for better performance
-siteConfigSchema.index({ key: 1 }, { unique: true });
+// Index for better performance (key already indexed via unique in schema definition)
+// siteConfigSchema.index({ key: 1 }, { unique: true }); // Removed: duplicate with schema unique
 siteConfigSchema.index({ category: 1, sortOrder: 1 });
 siteConfigSchema.index({ isPublic: 1 });
 siteConfigSchema.index({ isEditable: 1 });
@@ -378,6 +378,7 @@ siteConfigSchema.statics.initializeDefaults = async function() {
     { key: 'site_favicon', value: '/favicon.ico', type: 'file', category: 'general', label: 'Site Favicon', isPublic: true },
     { key: 'site_thumbnail', value: '/logo.png', type: 'file', category: 'general', label: 'Site Thumbnail', isPublic: true },
     { key: 'contact_email', value: 'support@example.com', type: 'email', category: 'general', label: 'Contact Email', isPublic: true },
+    { key: 'telegram_support_url', value: '', type: 'url', category: 'general', label: 'Telegram Support URL', isPublic: true },
 
     // Pricing
     { key: 'default_price_per_card', value: 0.1, type: 'number', category: 'pricing', label: 'Default Price Per Card' },

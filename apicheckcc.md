@@ -2,10 +2,10 @@ API Check Charge
 
 Hàm Lấy Random Thẻ Về để Check
 
-URL GET: http://160.25.168.79/api/TrungLOL.aspx?token=abc&LoaiDV=1&Device=test&Amount=10&TypeCheck=2
+URL POST API: https://checkcc.live/api/checkcc
 
 Tham số URL:
-Token: Token được cấp
+Token: Token được cấp sau khi login xong
 LoaiDV: 1
 Device: Mã máy
 Amount: Số lượng thẻ cần lấy
@@ -58,9 +58,10 @@ Result Error:
 
 Hàm Update Status Thẻ
 
-URL GET: http://160.25.168.79/api/TrungLOL.aspx?token=abc&LoaiDV=2&Device=test&Id=3359834&Status=3&State=0&From=0&Msg=msg
+URL POST API: https://checkcc.live/api/checkcc
+
 Tham số URL:
-Token: Token được cấp
+Token: Token được cấp sau khi login xong
 LoaiDV: 2
 Device: Mã máy
 Id: Lấy trên API 1

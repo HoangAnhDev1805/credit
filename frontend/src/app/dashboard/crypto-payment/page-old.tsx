@@ -10,13 +10,6 @@ import { useToast } from '@/hooks/use-toast'
 import { useAuthStore } from '@/lib/auth'
 import { apiClient } from '@/lib/api'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
   CreditCard,
   DollarSign,
   Zap,
@@ -34,10 +27,7 @@ import {
   Bitcoin,
   Coins,
   ArrowRight,
-  RefreshCw,
-  History as HistoryIcon,
-  XCircle,
-  Eye
+  RefreshCw
 } from 'lucide-react'
 
 interface PaymentData {
@@ -48,8 +38,6 @@ interface PaymentData {
   address_in: string;
   minimum_transaction_coin: number;
   qr_code_base64?: string;
-  qr_code?: string;
-  qrcode_url?: string;
   payment_uri?: string;
   expiresAt: string;
   instructions: string;
@@ -88,13 +76,13 @@ export default function CryptoPaymentPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [enabledCoins, setEnabledCoins] = useState<Record<string, boolean> | null>(null)
   const [cryptoUsdPrices, setCryptoUsdPrices] = useState<Record<string, number> | null>(null)
-  const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [paymentHistory, setPaymentHistory] = useState<any[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
-  const [selectedPaymentDetail, setSelectedPaymentDetail] = useState<any>(null)
-  const [showDetailModal, setShowDetailModal] = useState(false)
-  const [cancelingPaymentId, setCancelingPaymentId] = useState<string | null>(null)
+  const [historyPage, setHistoryPage] = useState(0)
+  const [hasMoreHistory, setHasMoreHistory] = useState(false)
+  const [totalHistory, setTotalHistory] = useState(0)
   const [hasPendingPayment, setHasPendingPayment] = useState(false)
+  const [pendingPaymentInfo, setPendingPaymentInfo] = useState<any>(null)
 
   useEffect(() => {
     // Set token first, wait a bit for it to settle, then load config
@@ -106,14 +94,9 @@ export default function CryptoPaymentPage() {
     // Load configuration including enabled coins and packages
     const loadConfig = async () => {
       try {
-        // Load both config and packages in parallel for faster page load
-        const [configResp, packagesResp] = await Promise.all([
-          apiClient.getPublicConfig(),
-          apiClient.get('/payments/packages')
-        ])
-        
-        // Process config data
-        const data = configResp.data || {}
+        // Load enabled coins & crypto prices from public config
+        const resp = await apiClient.getPublicConfig()
+        const data = resp.data || {}
         const apiCfg = data.api || {}
         const coins = apiCfg.cryptapi_enabled_coins || null
         setEnabledCoins(coins)
@@ -121,18 +104,20 @@ export default function CryptoPaymentPage() {
         const prices = payCfg.crypto_usd_prices || null
         setCryptoUsdPrices(prices)
 
-        // Process packages data
-        if (packagesResp.data && packagesResp.data.success) {
-          const packagesData = packagesResp.data.data || []
-          
+        // Load credit packages from unified API
+        const packagesResp = await apiClient.getCreditPackages()
+        if (packagesResp.success && packagesResp.data) {
+          const { packages, creditPerUsd } = packagesResp.data
+          setConversionRate(creditPerUsd || 10)
+
           // Convert packages to expected format
-          const creditPackages = packagesData.map((pkg: any) => ({
-            id: pkg._id || pkg.id,
+          const creditPackages = packages.map((pkg: any) => ({
+            id: pkg.id.toString(),
             credits: pkg.credits,
-            price: pkg.amount, // Use 'amount' from DB
+            price: pkg.price,
             bonus: pkg.bonus || 0,
-            popular: false,
-            savings: pkg.bonus > 0 ? `${pkg.bonus}%` : ''
+            popular: pkg.popular || false,
+            savings: pkg.savings || (pkg.popular ? '10%' : '')
           }))
 
           setCreditPackages(creditPackages)
@@ -141,31 +126,17 @@ export default function CryptoPaymentPage() {
           }
         }
       } catch (error) {
-        // Failed to load config
+        console.error('[CryptoPayment] Failed to load config:', error)
       }
     }
 
-    // Load data immediately in parallel
-    Promise.all([
-      loadConfig(),
-      checkPendingPayment()
-    ]).catch(err => {
-      // Failed to load page data
-    })
+    // Small delay to ensure token interceptor is ready
+    const timer = setTimeout(() => {
+      loadConfig()
+    }, 100)
+
+    return () => clearTimeout(timer)
   }, [])
-
-  // Check if user has pending payment
-  const checkPendingPayment = async () => {
-    try {
-      const response = await apiClient.get('/payments/requests?status=pending&limit=1')
-      if (response.data.success && response.data.data) {
-        const requests = response.data.data.requests || []
-        setHasPendingPayment(requests.length > 0)
-      }
-    } catch (error) {
-      // Failed to check pending payment
-    }
-  }
 
   const availableOptions = enabledCoins ? cryptoOptions.filter((o) => enabledCoins[o.value]) : cryptoOptions
 
@@ -220,7 +191,7 @@ export default function CryptoPaymentPage() {
             }
           }
         } catch (error) {
-          // Failed to check order status
+          console.error('Failed to check order status:', error);
         }
       }, 10000); // Check every 10 seconds
 
@@ -256,65 +227,41 @@ export default function CryptoPaymentPage() {
   };
 
   const handleCreatePayment = async () => {
-    // Check for pending payment first
-    if (hasPendingPayment) {
-      toast({
-        title: 'Pending Payment',
-        description: 'You already have a pending payment. Please complete or cancel it before creating a new one.',
-        variant: "destructive",
-      });
-      return;
-    }
-
     const amount = getAmount();
 
-    if (!amount || amount < 1) {
+    if (!amount || amount <= 0) {
       toast({
-        title: t('cryptoPayment.toasts.errorTitle'),
-        description: t('cryptoPayment.toasts.minAmount'),
-        variant: "destructive",
-      });
-      return;
+        title: t('common.error') || 'Error',
+        description: 'Please enter a valid amount',
+        variant: 'destructive'
+      })
+      return
     }
 
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      // Token is already set in apiClient from localStorage
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
       const response = await apiClient.post('/payments/cryptapi/create-address', {
-        amount,
+        amount: Number(amount),
         coin: selectedCoin,
         confirmations: 1
-      });
-
+      })
       if (response.data.success) {
         setPaymentData(response.data.data);
         setOrderStatus('pending');
         toast({
-          title: t('cryptoPayment.toasts.createdTitle'),
-          description: t('cryptoPayment.toasts.createdDesc'),
-          variant: "default",
-        });
-      } else {
-        toast({
-          title: t('cryptoPayment.toasts.errorTitle'),
-          description: response.data.message || t('cryptoPayment.toasts.createError'),
-          variant: "destructive",
-        });
+          title: t('common.success') || 'Success',
+          description: 'Payment address created successfully',
+        })
       }
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || error.message || 'Lỗi tạo thanh toán';
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to create payment address'
       toast({
-        title: t('cryptoPayment.toasts.errorTitle'),
-        description: errorMessage,
-        variant: "destructive",
-      });
+        title: t('common.error') || 'Error',
+        description: errorMsg,
+        variant: 'destructive'
+      })
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
   };
 
@@ -456,48 +403,19 @@ export default function CryptoPaymentPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center space-y-4">
-              {(() => {
-                const qrBase64 = paymentData.qr_code_base64 || paymentData.qr_code;
-                const qrUrl = paymentData.qrcode_url;
-                
-                if (qrBase64) {
-                  return (
-                    <div className="p-2 sm:p-4 bg-white rounded-lg w-full flex justify-center">
-                      <img
-                        src={`data:image/png;base64,${qrBase64}`}
-                        alt="QR Code"
-                        className="w-40 h-40 sm:w-64 sm:h-64"
-                      />
-                    </div>
-                  );
-                } else if (qrUrl) {
-                  return (
-                    <div className="p-2 sm:p-4 bg-white rounded-lg w-full flex justify-center">
-                      <img
-                        src={qrUrl}
-                        alt="QR Code"
-                        className="w-40 h-40 sm:w-64 sm:h-64"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                      {/* Loading spinner while image loads */}
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      </div>
-                    </div>
-                  );
-                } else {
-                  return (
-                    <div className="w-40 h-40 sm:w-64 sm:h-64 bg-muted rounded-lg flex items-center justify-center">
-                      <div className="text-center space-y-2">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-                        <p className="text-xs sm:text-sm text-muted-foreground">Loading QR Code...</p>
-                      </div>
-                    </div>
-                  );
-                }
-              })()}
+              {paymentData.qr_code_base64 ? (
+                <div className="p-2 sm:p-4 bg-white rounded-lg w-full flex justify-center">
+                  <img
+                    src={`data:image/png;base64,${paymentData.qr_code_base64}`}
+                    alt="QR Code"
+                    className="w-40 h-40 sm:w-64 sm:h-64"
+                  />
+                </div>
+              ) : (
+                <div className="w-40 h-40 sm:w-64 sm:h-64 bg-muted rounded-lg flex items-center justify-center">
+                  <p className="text-xs sm:text-sm text-muted-foreground">QR Code không khả dụng</p>
+                </div>
+              )}
 
               <div className="text-center space-y-2 w-full">
                 <p className="text-xs sm:text-sm text-muted-foreground">
@@ -526,95 +444,21 @@ export default function CryptoPaymentPage() {
         </div>
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-            <p className="text-sm sm:text-base text-muted-foreground">Loading credit packages...</p>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-sm sm:text-base text-muted-foreground">Đang tải gói credit...</p>
           </div>
         </div>
       </div>
     );
   }
 
-  // Load payment history
-  const loadHistory = async () => {
-    setHistoryLoading(true)
-    try {
-      const response = await apiClient.get('/payments/requests')
-      if (response.data.success) {
-        const data = response.data.data
-        // Ensure it's always an array
-        if (Array.isArray(data)) {
-          setPaymentHistory(data)
-        } else if (data && Array.isArray(data.requests)) {
-          setPaymentHistory(data.requests)
-          // Update pending payment flag
-          setHasPendingPayment(data.requests.some((p: any) => p.status === 'pending'))
-        } else {
-          setPaymentHistory([])
-        }
-      } else {
-        setPaymentHistory([])
-      }
-    } catch (error) {
-      setPaymentHistory([])
-    } finally {
-      setHistoryLoading(false)
-    }
-  }
-
-  // Handle view payment details
-  const handleViewDetail = (payment: any) => {
-    setSelectedPaymentDetail(payment)
-    setShowDetailModal(true)
-  }
-
-  // Handle cancel payment
-  const handleCancelPayment = async (paymentId: string) => {
-    setCancelingPaymentId(paymentId)
-    try {
-      const response = await apiClient.delete(`/payments/requests/${paymentId}`)
-      if (response.data.success) {
-        toast({
-          title: 'Success',
-          description: 'Payment request cancelled successfully',
-        })
-        loadHistory() // Reload history
-        checkPendingPayment() // Recheck pending status
-        setShowDetailModal(false)
-      } else {
-        throw new Error(response.data.message || 'Failed to cancel')
-      }
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to cancel payment',
-        variant: 'destructive',
-      })
-    } finally {
-      setCancelingPaymentId(null)
-    }
-  }
-
   return (
     <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
-      <div className="mb-6 sm:mb-8 flex justify-between items-start">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t('cryptoPayment.title')}</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            {t('cryptoPayment.subtitle')}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setShowHistoryModal(true)
-            loadHistory()
-          }}
-          className="flex items-center gap-2"
-        >
-          <HistoryIcon className="h-4 w-4" />
-          History
-        </Button>
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t('cryptoPayment.title')}</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
+          {t('cryptoPayment.subtitle')}
+        </p>
       </div>
 
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
@@ -791,7 +635,7 @@ export default function CryptoPaymentPage() {
 
               <Button
                 onClick={handleCreatePayment}
-                disabled={isLoading || !selectedPackage || !selectedCoin || getAmount() < 1 || hasPendingPayment}
+                disabled={isLoading || !selectedPackage || !selectedCoin || getAmount() < 1}
                 className="w-full text-xs sm:text-sm"
                 size="lg"
               >
@@ -829,266 +673,6 @@ export default function CryptoPaymentPage() {
           </Card>
         </div>
       </div>
-
-      {/* History Modal */}
-      <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <HistoryIcon className="h-5 w-5" />
-              Payment History
-            </DialogTitle>
-            <DialogDescription>
-              View your recent crypto payment transactions
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            {historyLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              </div>
-            ) : !Array.isArray(paymentHistory) || paymentHistory.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No payment history found
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {paymentHistory.map((payment: any) => (
-                  <Card key={payment.id || payment._id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">
-                              ${payment.amount || payment.finalAmount}
-                            </span>
-                            <Badge variant={
-                              payment.status === 'approved' ? 'default' :
-                              payment.status === 'pending' ? 'secondary' :
-                              payment.status === 'cancelled' || payment.status === 'rejected' ? 'destructive' : 'outline'
-                            }>
-                              {payment.status}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {payment.paymentMethod?.name || payment.paymentMethod?.type || 'N/A'}
-                            {payment.paymentMethod?.bankName && ` • ${payment.paymentMethod.bankName}`}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(payment.createdAt).toLocaleString()}
-                          </p>
-                          {payment.note && (
-                            <p className="text-xs text-muted-foreground italic">
-                              Note: {payment.note}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {payment.status === 'pending' && (
-                            <Loader2 className="h-4 w-4 text-yellow-500 animate-spin" />
-                          )}
-                          {payment.status === 'approved' && (
-                            <CheckCircle className="h-5 w-5 text-green-500" />
-                          )}
-                          {(payment.status === 'cancelled' || payment.status === 'rejected') && (
-                            <XCircle className="h-5 w-5 text-red-500" />
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleViewDetail(payment)}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Payment Detail Modal */}
-      <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Payment Details
-            </DialogTitle>
-          </DialogHeader>
-
-          {selectedPaymentDetail && (
-            <div className="space-y-4">
-              {/* Status Badge */}
-              <div className="flex items-center justify-between">
-                <Badge 
-                  variant={
-                    selectedPaymentDetail.status === 'approved' ? 'default' :
-                    selectedPaymentDetail.status === 'pending' ? 'secondary' :
-                    'destructive'
-                  }
-                  className="text-sm px-3 py-1"
-                >
-                  {selectedPaymentDetail.status === 'pending' && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
-                  {selectedPaymentDetail.status.toUpperCase()}
-                </Badge>
-                <span className="text-2xl font-bold">
-                  ${selectedPaymentDetail.amount || selectedPaymentDetail.finalAmount}
-                </span>
-              </div>
-
-              {/* Payment Info */}
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Payment Method</p>
-                      <p className="font-medium">
-                        {selectedPaymentDetail.paymentMethod?.name || selectedPaymentDetail.paymentMethod?.type || 'N/A'}
-                      </p>
-                    </div>
-                    {selectedPaymentDetail.paymentMethod?.bankName && (
-                      <div>
-                        <p className="text-muted-foreground">Bank</p>
-                        <p className="font-medium">{selectedPaymentDetail.paymentMethod.bankName}</p>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-muted-foreground">Created At</p>
-                      <p className="font-medium">{new Date(selectedPaymentDetail.createdAt).toLocaleString()}</p>
-                    </div>
-                    {selectedPaymentDetail.processedAt && (
-                      <div>
-                        <p className="text-muted-foreground">Processed At</p>
-                        <p className="font-medium">{new Date(selectedPaymentDetail.processedAt).toLocaleString()}</p>
-                      </div>
-                    )}
-                    {selectedPaymentDetail.expiresAt && (
-                      <div>
-                        <p className="text-muted-foreground">Expires At</p>
-                        <p className="font-medium">{new Date(selectedPaymentDetail.expiresAt).toLocaleString()}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {selectedPaymentDetail.note && (
-                    <div className="pt-3 border-t">
-                      <p className="text-muted-foreground text-sm">Note</p>
-                      <p className="text-sm">{selectedPaymentDetail.note}</p>
-                    </div>
-                  )}
-
-                  {selectedPaymentDetail.adminNote && (
-                    <div className="pt-3 border-t">
-                      <p className="text-muted-foreground text-sm">Admin Note</p>
-                      <p className="text-sm">{selectedPaymentDetail.adminNote}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* QR Code - Show for pending crypto payments */}
-              {selectedPaymentDetail.status === 'pending' && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <QrCode className="h-5 w-5" />
-                      Payment Address
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Try to get QR from different possible fields */}
-                    {(() => {
-                      const qrUrl = selectedPaymentDetail.metadata?.cryptapi_qr_code || 
-                                   selectedPaymentDetail.metadata?.qrcode_url ||
-                                   selectedPaymentDetail.qrcode_url;
-                      const address = selectedPaymentDetail.metadata?.cryptapi_address ||
-                                     selectedPaymentDetail.metadata?.address_in;
-                      
-                      return (
-                        <>
-                          {qrUrl && (
-                            <div className="flex justify-center p-4 bg-white rounded-lg">
-                              <img
-                                src={qrUrl}
-                                alt="QR Code"
-                                className="w-48 h-48"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none';
-                                }}
-                              />
-                            </div>
-                          )}
-                          {address && (
-                            <div className="space-y-2">
-                              <p className="text-sm text-muted-foreground">Address</p>
-                              <div className="flex items-center gap-2">
-                                <code className="flex-1 p-2 bg-muted rounded text-xs break-all">
-                                  {address}
-                                </code>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(address)
-                                    toast({ title: 'Copied!', description: 'Address copied to clipboard' })
-                                  }}
-                                >
-                                  <Copy className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                          {selectedPaymentDetail.metadata?.cryptapi_minimum_transaction && (
-                            <p className="text-sm text-muted-foreground">
-                              Minimum: {selectedPaymentDetail.metadata.cryptapi_minimum_transaction} {selectedPaymentDetail.metadata.cryptapi_coin?.toUpperCase()}
-                            </p>
-                          )}
-                          {!qrUrl && !address && (
-                            <p className="text-sm text-muted-foreground text-center py-4">
-                              Payment information not available
-                            </p>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Cancel Button - Only for pending payments */}
-              {selectedPaymentDetail.status === 'pending' && (
-                <Button
-                  variant="destructive"
-                  className="w-full"
-                  onClick={() => handleCancelPayment(selectedPaymentDetail.id || selectedPaymentDetail._id)}
-                  disabled={!!cancelingPaymentId}
-                >
-                  {cancelingPaymentId === (selectedPaymentDetail.id || selectedPaymentDetail._id) ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Cancelling...
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-4 w-4 mr-2" />
-                      Cancel Payment
-                    </>
-                  )}
-                </Button>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

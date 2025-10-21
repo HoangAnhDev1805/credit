@@ -93,9 +93,9 @@ userSchema.virtual('successRate').get(function() {
   return ((this.totalLiveCards / this.totalCardsSubmitted) * 100).toFixed(2);
 });
 
-// Index for better performance
-userSchema.index({ username: 1 });
-userSchema.index({ email: 1 });
+// Index for better performance (username and email already indexed via unique: true)
+// userSchema.index({ username: 1 }); // Removed: duplicate with unique index
+// userSchema.index({ email: 1 }); // Removed: duplicate with unique index
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ createdAt: -1 });

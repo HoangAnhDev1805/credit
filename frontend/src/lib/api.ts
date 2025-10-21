@@ -112,7 +112,8 @@ class ApiClient {
       } catch {}
     }
     if (!base) {
-      base = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '') || 'https://checkcc.live';
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003/api';
+      base = API_BASE_URL;
     }
 
     // Normalize base to ensure we don't end up with /api/api when env already contains /api
@@ -136,9 +137,6 @@ class ApiClient {
       (config) => {
         if (this.token) {
           config.headers.Authorization = `Bearer ${this.token}`;
-          console.log('[API Client] Token added to request:', config.url, '| Token:', this.token.substring(0, 30) + '...');
-        } else {
-          console.warn('[API Client] No token available for request:', config.url);
         }
         return config;
       },
@@ -302,8 +300,8 @@ class ApiClient {
     return response.data;
   }
 
-  async stopCheck(sessionId: string): Promise<ApiResponse<{ session: any }>> {
-    const response = await this.client.post('/checker/start', { stop: true, sessionId });
+  async stopCheck(params: { sessionId: string }): Promise<ApiResponse<{ session: any }>> {
+    const response = await this.client.post('/checker/start', { stop: true, sessionId: params.sessionId });
     return response.data;
   }
 

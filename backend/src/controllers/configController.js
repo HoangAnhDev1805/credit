@@ -24,6 +24,15 @@ exports.getPublicConfigs = async (req, res) => {
     const showCryptoPayment = await SiteConfig.getByKey('payment_show_crypto_payment');
     const minDeposit = await SiteConfig.getByKey('min_deposit_amount');
     const maxDeposit = await SiteConfig.getByKey('max_deposit_amount');
+    
+    // Thêm telegram_support_url vào general config
+    const telegramUrl = await SiteConfig.getByKey('telegram_support_url');
+    if (!configs.general) configs.general = {};
+    configs.general.telegram_support_url = telegramUrl || '';
+    
+    // Ensure logo is in correct key
+    const siteLogo = await SiteConfig.getByKey('site_logo');
+    if (siteLogo) configs.general.site_logo = siteLogo;
 
     configs.payment = configs.payment || {};
     configs.payment.payment_credit_per_usd = Number(creditPerUsd || 10);
@@ -31,8 +40,9 @@ exports.getPublicConfigs = async (req, res) => {
     if (cryptoUsdPrices && typeof cryptoUsdPrices === 'object') {
       configs.payment.crypto_usd_prices = cryptoUsdPrices;
     }
-    configs.payment.payment_show_buy_credits = showBuyCredits !== false;
-    configs.payment.payment_show_crypto_payment = showCryptoPayment !== false;
+    // Exact boolean match - must be explicitly true from database
+    configs.payment.payment_show_buy_credits = showBuyCredits === true;
+    configs.payment.payment_show_crypto_payment = showCryptoPayment === true;
     configs.payment.min_deposit_amount = Number(minDeposit || 10);
     configs.payment.max_deposit_amount = Number(maxDeposit || 10000);
 
@@ -49,8 +59,9 @@ exports.getPublicConfigs = async (req, res) => {
     // Ignore errors, dùng defaults an toàn
     configs.payment = configs.payment || {};
     configs.payment.payment_credit_per_usd = configs.payment.payment_credit_per_usd || 10;
-    configs.payment.payment_show_buy_credits = configs.payment.payment_show_buy_credits !== false;
-    configs.payment.payment_show_crypto_payment = configs.payment.payment_show_crypto_payment !== false;
+    // Fallback should also use exact match
+    configs.payment.payment_show_buy_credits = configs.payment.payment_show_buy_credits === true;
+    configs.payment.payment_show_crypto_payment = configs.payment.payment_show_crypto_payment === true;
     configs.payment.min_deposit_amount = configs.payment.min_deposit_amount || 10;
     configs.payment.max_deposit_amount = configs.payment.max_deposit_amount || 10000;
     configs.payment.payment_credit_packages = configs.payment.payment_credit_packages || [

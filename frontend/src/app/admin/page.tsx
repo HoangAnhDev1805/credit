@@ -146,12 +146,12 @@ export default function AdminDashboard() {
             </div>
           </div>
         </Link>
-        <Link href="/admin/api-tester?tab=crypto" className="p-6 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
+        <Link href="/admin/api-tester?tab=receiver" className="p-6 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
           <div className="flex items-center space-x-4">
             <CreditCard className="h-10 w-10 text-white" />
             <div>
-              <h3 className="text-lg font-semibold text-white">Test CryptAPI</h3>
-              <p className="text-sm text-orange-100">Kiểm tra giao dịch crypto</p>
+              <h3 className="text-lg font-semibold text-white">Test API LoaiDV 2</h3>
+              <p className="text-sm text-orange-100">Gửi kết quả (Receiver)</p>
             </div>
           </div>
         </Link>

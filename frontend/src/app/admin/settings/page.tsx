@@ -11,7 +11,8 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ImageUpload } from '@/components/shared/ImageUpload'
 import { apiClient } from '@/lib/api'
-import { Settings, Globe, DollarSign, Eye, CreditCard, Palette, Languages, Zap, Tag, Bitcoin, Shield, Share2, Twitter, Mail } from 'lucide-react'
+import { Settings, Globe, DollarSign, Eye, CreditCard, Palette, Languages, Zap, Tag, Bitcoin, Shield, Share2, Twitter, Mail, Target } from 'lucide-react'
+import { GateManager } from '@/components/admin/GateManager'
 
 interface SiteConfig {
   siteName: string
@@ -120,7 +121,6 @@ export default function AdminSettings() {
   const handleSaveSiteConfig = async (formData: any) => {
     try {
       setSaving(true)
-      console.log('Saving site config:', formData)
       await apiClient.put('/admin/site-config', formData)
       success('Thành công', 'Cập nhật cấu hình website thành công')
 
@@ -331,7 +331,7 @@ export default function AdminSettings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex w-full gap-2 overflow-x-auto md:grid md:grid-cols-3 lg:grid-cols-6 md:overflow-visible">
+        <TabsList className="flex w-full gap-2 overflow-x-auto md:grid md:grid-cols-3 lg:grid-cols-7 md:overflow-visible">
           <TabsTrigger value="site" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
             <Globe className="h-4 w-4 mr-2" />
             <div className="text-left min-w-0">
@@ -361,6 +361,14 @@ export default function AdminSettings() {
             <div className="text-left min-w-0">
               <div className="font-medium truncate">API & Tích hợp</div>
               <div className="text-xs opacity-70 truncate">CryptAPI</div>
+            </div>
+          </TabsTrigger>
+
+          <TabsTrigger value="gate" className="shrink-0 min-w-[180px] md:min-w-0 data-[state=active]:bg-pink-500 data-[state=active]:text-white">
+            <Target className="h-4 w-4 mr-2" />
+            <div className="text-left min-w-0">
+              <div className="font-medium truncate">GATE</div>
+              <div className="text-xs opacity-70 truncate">Check Gates</div>
             </div>
           </TabsTrigger>
 
@@ -615,6 +623,24 @@ export default function AdminSettings() {
         </TabsContent>
 
 
+
+        {/* GATE Configuration Tab */}
+        <TabsContent value="gate">
+          <Card className="border-l-4 border-l-pink-500">
+            <CardHeader className="bg-pink-50 dark:bg-pink-950/20">
+              <CardTitle className="flex items-center text-pink-700 dark:text-pink-300">
+                <Target className="h-5 w-5 mr-2" />
+                Cấu hình GATE - Check Gates
+              </CardTitle>
+              <CardDescription>
+                Quản lý các GATE để kiểm tra thẻ. Mỗi gate có một giá trị TypeCheck riêng biệt.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <GateManager />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Pricing Configuration Tab */}
         <TabsContent value="pricing">

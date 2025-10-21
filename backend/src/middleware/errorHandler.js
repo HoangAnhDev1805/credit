@@ -229,6 +229,11 @@ const unprocessableEntityError = (message = 'Unprocessable entity') => {
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
+  console.error('========== UNCAUGHT EXCEPTION ==========');
+  console.error('Error Name:', err.name);
+  console.error('Error Message:', err.message);
+  console.error('Stack Trace:', err.stack);
+  console.error('=========================================');
   logger.error('Uncaught Exception:', err);
   console.log('UNCAUGHT EXCEPTION! 💥 Shutting down...');
   process.exit(1);

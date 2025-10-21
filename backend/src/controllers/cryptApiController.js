@@ -13,10 +13,11 @@ const processedWebhooks = new Set();
 // @access  Private
 const createCryptApiAddress = async (req, res, next) => {
   try {
-    if (!cryptApiService.isConfigured()) {
+    const isConfigured = await cryptApiService.isConfigured();
+    if (!isConfigured) {
       return res.status(503).json({
         success: false,
-        message: 'CryptAPI chưa được cấu hình'
+        message: 'CryptAPI chưa được cấu hình. Vui lòng cấu hình CryptAPI trong Admin Settings.'
       });
     }
 
@@ -71,7 +72,7 @@ const createCryptApiAddress = async (req, res, next) => {
     const addressResult = await cryptApiService.createPaymentAddress({
       orderId,
       coin,
-      value: amount,
+      amount,  // Changed from 'value' to 'amount'
       confirmations
     });
 
@@ -120,10 +121,11 @@ const createCryptApiAddress = async (req, res, next) => {
         amount,
         address_in: addressResult.data.address_in,
         minimum_transaction_coin: addressResult.data.minimum_transaction_coin,
-        qr_code_base64: addressResult.data.qr_code,
+        qrcode_url: addressResult.data.qrcode_url,
+        qr_code: addressResult.data.qr_code,
         payment_uri: addressResult.data.payment_uri,
         expiresAt: paymentRequest.expiresAt,
-        instructions: `Chuyển tối thiểu ${addressResult.data.minimum_transaction_coin} ${coin.toUpperCase()} đến địa chỉ trên`
+        instructions: `Send at least ${addressResult.data.minimum_transaction_coin} ${coin.toUpperCase()} to the address above`
       }
     });
   } catch (error) {
@@ -134,103 +136,157 @@ const createCryptApiAddress = async (req, res, next) => {
 
 // @desc    Webhook callback từ CryptAPI
 // @route   POST /api/payments/cryptapi/webhook
-// @access  Public (với signature verification)
+// @access  Public
 const handleCryptApiWebhook = async (req, res) => {
   try {
-    // Verify signature
-    if (!cryptApiService.verifyWebhookSignature(req)) {
-      logger.warn('Invalid CryptAPI webhook signature');
-      return res.status(401).send('invalid signature');
-    }
-
-    // Parse webhook data
-    const webhookData = req.body ? JSON.parse(req.body.toString()) : req.body || {};
+    // Get webhook data from body (post=1&json=1)
+    const webhookData = req.body || {};
     
+    // Custom params ALWAYS in query string
+    const { order_id } = req.query;
+    
+    const {
+      uuid,
+      pending,
+      coin,
+      address_in,
+      address_out,
+      txid_in,
+      txid_out,
+      confirmations,
+      value_coin,
+      value_coin_convert,
+      value_forwarded_coin,
+      value_forwarded_coin_convert,
+      fee_coin,
+      price
+    } = webhookData;
+
+    logger.info('[CryptAPI Webhook] Received:', {
+      uuid,
+      order_id,
+      pending: pending === 1 ? 'pending' : 'confirmed',
+      coin,
+      value_coin,
+      confirmations
+    });
+
     // Idempotency check
-    if (!webhookData.uuid || processedWebhooks.has(webhookData.uuid)) {
-      return res.send('*ok*');
+    if (!uuid || processedWebhooks.has(uuid)) {
+      logger.info('[CryptAPI Webhook] Duplicate webhook, skipping:', uuid);
+      return res.status(200).send('*ok*');
     }
 
-    // Process webhook
-    const webhookResult = await cryptApiService.processWebhook(webhookData);
-    
-    if (!webhookResult.success) {
-      logger.error('Webhook processing failed:', webhookResult.error);
-      return res.send('*ok*'); // Vẫn trả ok để tránh retry
-    }
-
-    const { orderId, isPending, coin, value_coin, value_forwarded_coin, txid_in, status } = webhookResult.data;
-
-    // Tìm payment request
+    // Find payment request by order_id
     const paymentRequest = await PaymentRequest.findOne({
-      transactionId: orderId
+      transactionId: order_id
     }).populate('userId');
 
     if (!paymentRequest) {
-      logger.warn('Payment request not found for webhook:', orderId);
-      return res.send('*ok*');
+      logger.error('[CryptAPI Webhook] Payment request not found:', order_id);
+      return res.status(200).send('*ok*');
     }
 
-    // Mark webhook as processed
-    processedWebhooks.add(webhookData.uuid);
-
-    if (isPending) {
-      // Thanh toán pending
-      logger.info('CryptAPI payment pending:', {
-        orderId,
-        coin,
-        value_coin,
-        txid_in
+    // Process based on pending status
+    if (pending === 1) {
+      // Payment detected but not confirmed
+      logger.info('[CryptAPI Webhook] Pending payment:', {
+        order_id,
+        txid: txid_in,
+        amount: value_coin
       });
 
       await PaymentRequest.findByIdAndUpdate(paymentRequest._id, {
-        adminNote: `CryptAPI pending - TX: ${txid_in}`,
-        metadata: {
-          ...paymentRequest.metadata,
-          cryptapi_txid_in: txid_in,
-          cryptapi_status: 'pending',
-          cryptapi_value_coin: value_coin
-        }
-      });
-    } else {
-      // Thanh toán confirmed
-      logger.info('CryptAPI payment confirmed:', {
-        orderId,
-        coin,
-        value_coin,
-        value_forwarded_coin,
-        txid_in
+        status: 'processing',
+        adminNote: `Pending: ${value_coin} ${coin.toUpperCase()} (tx: ${txid_in})`
       });
 
-      // Update payment request metadata
+      // Mark as processed
+      processedWebhooks.add(uuid);
+      
+      return res.status(200).send('*ok*');
+
+    } else if (pending === 0 && confirmations >= 1) {
+      // Payment confirmed
+      logger.info('[CryptAPI Webhook] Confirmed payment:', {
+        order_id,
+        txid: txid_in,
+        amount: value_coin,
+        forwarded: value_forwarded_coin,
+        fee: fee_coin
+      });
+
+      // Calculate credits (using payment request amount)
+      const creditAmount = paymentRequest.amount;
+
+      // Update payment request
       await PaymentRequest.findByIdAndUpdate(paymentRequest._id, {
-        adminNote: `CryptAPI confirmed - TX: ${txid_in}`,
-        metadata: {
-          ...paymentRequest.metadata,
-          cryptapi_txid_in: txid_in,
-          cryptapi_status: 'confirmed',
-          cryptapi_value_coin: value_coin,
-          cryptapi_value_forwarded: value_forwarded_coin
+        status: 'approved',
+        adminNote: `Confirmed: ${value_forwarded_coin} ${coin.toUpperCase()} forwarded (tx: ${txid_out}, fee: ${fee_coin}), Price: $${price}`,
+        approvedBy: null, // Auto-approved by system
+        approvedAt: new Date()
+      });
+
+      // Credit user account
+      const user = await User.findById(paymentRequest.userId);
+      if (user) {
+        user.balance += creditAmount;
+        await user.save();
+
+        // Create transaction record
+        await Transaction.create({
+          userId: user._id,
+          type: 'payment',
+          amount: creditAmount,
+          balance: user.balance,
+          description: `CryptAPI payment confirmed: ${value_coin} ${coin.toUpperCase()}`,
+          metadata: {
+            payment_request_id: paymentRequest._id,
+            crypto_coin: coin,
+            crypto_amount: value_coin,
+            forwarded_amount: value_forwarded_coin,
+            fee: fee_coin,
+            txid_in,
+            txid_out,
+            address_in,
+            price_usd: price
+          }
+        });
+
+        logger.info('[CryptAPI Webhook] User credited:', {
+          userId: user._id,
+          credits: creditAmount,
+          newBalance: user.balance
+        });
+
+        // Emit Socket.IO event for real-time UI update
+        const io = req.app.get('io');
+        if (io) {
+          io.to(user._id.toString()).emit('payment:completed', {
+            success: true,
+            credits: creditAmount,
+            balance: user.balance,
+            coin: coin.toUpperCase(),
+            amount: value_coin,
+            txid: txid_in
+          });
         }
-      });
+      }
 
-      // Use PaymentRequest approve method which handles USD to credits conversion
-      await paymentRequest.approve(null, `CryptAPI confirmed - TX: ${txid_in}`);
+      // Mark as processed
+      processedWebhooks.add(uuid);
 
-      logger.info('CryptAPI payment completed:', {
-        userId: user._id,
-        username: user.username,
-        amount: paymentRequest.finalAmount,
-        txid_in,
-        newBalance
-      });
+      return res.status(200).send('*ok*');
     }
 
-    // Trả về *ok* cho CryptAPI (bắt buộc)
-    res.send('*ok*');
+    // Unknown state
+    logger.warn('[CryptAPI Webhook] Unknown state:', { pending, confirmations });
+    return res.status(200).send('*ok*');
+
   } catch (error) {
-    logger.error('CryptAPI webhook error:', error);
-    res.send('*ok*'); // Vẫn trả ok để tránh retry vô hạn
+    logger.error('[CryptAPI Webhook] Error:', error);
+    // Always respond with *ok* to stop retries
+    return res.status(200).send('*ok*');
   }
 };
 
@@ -271,6 +327,99 @@ const checkCryptApiOrderStatus = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Check CryptAPI order status error:', error);
+    next(error);
+  }
+};
+
+// @desc    Get payment history
+// @route   GET /api/payments/cryptapi/history
+// @access  Private
+const getPaymentHistory = async (req, res, next) => {
+  try {
+    const { limit = 5, skip = 0 } = req.query;
+    const userId = req.user.id;
+
+    // Find all crypto payments for this user
+    const query = {
+      userId,
+      note: { $regex: 'CryptAPI', $options: 'i' }
+    };
+
+    const payments = await PaymentRequest.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .select('transactionId amount status metadata createdAt expiresAt approvedAt qrcode_url');
+
+    const total = await PaymentRequest.countDocuments(query);
+
+    const formattedPayments = payments.map(p => ({
+      id: p._id,
+      orderId: p.transactionId,
+      amount: p.amount,
+      status: p.status,
+      coin: p.metadata?.cryptapi_coin || 'unknown',
+      address_in: p.metadata?.cryptapi_address_in,
+      txid_in: p.metadata?.cryptapi_txid_in,
+      value_coin: p.metadata?.cryptapi_value_coin,
+      minimum_transaction_coin: p.metadata?.cryptapi_minimum_transaction,
+      qrcode_url: p.metadata?.cryptapi_qr_code,
+      createdAt: p.createdAt,
+      expiresAt: p.expiresAt,
+      completedAt: p.approvedAt
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        payments: formattedPayments,
+        total,
+        hasMore: total > parseInt(skip) + parseInt(limit)
+      }
+    });
+  } catch (error) {
+    logger.error('[CryptAPI History] Error:', error);
+    next(error);
+  }
+};
+
+// @desc    Check if user has pending crypto payment
+// @route   GET /api/payments/cryptapi/check-pending
+// @access  Private
+const checkPendingPayment = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const pendingPayment = await PaymentRequest.findOne({
+      userId,
+      status: { $in: ['pending', 'processing'] },
+      note: { $regex: 'CryptAPI', $options: 'i' },
+      expiresAt: { $gt: new Date() }
+    }).select('transactionId amount metadata createdAt expiresAt');
+
+    if (pendingPayment) {
+      return res.json({
+        success: true,
+        data: {
+          hasPending: true,
+          payment: {
+            orderId: pendingPayment.transactionId,
+            amount: pendingPayment.amount,
+            coin: pendingPayment.metadata?.cryptapi_coin,
+            address_in: pendingPayment.metadata?.cryptapi_address_in,
+            createdAt: pendingPayment.createdAt,
+            expiresAt: pendingPayment.expiresAt
+          }
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { hasPending: false }
+    });
+  } catch (error) {
+    logger.error('[CryptAPI Check Pending] Error:', error);
     next(error);
   }
 };
@@ -383,6 +532,8 @@ module.exports = {
   createCryptApiAddress,
   handleCryptApiWebhook,
   checkCryptApiOrderStatus,
+  getPaymentHistory,
+  checkPendingPayment,
   getSupportedCoins,
   getEstimate,
   getConvert,
