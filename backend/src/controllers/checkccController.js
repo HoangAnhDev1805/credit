@@ -7,17 +7,31 @@ const logger = require('../config/logger');
 
 // Helper functions
 const normalizeBody = (req) => {
+  const h = {
+    token: req.get('Token') || req.get('token') || req.get('x-token') || req.get('x-api-token') || '',
+    LoaiDV: req.get('LoaiDV') || req.get('loaidv') || req.get('X-LoaiDV'),
+    Device: req.get('Device') || req.get('device'),
+    Amount: req.get('Amount') || req.get('amount'),
+    TypeCheck: req.get('TypeCheck') || req.get('typecheck') || req.get('X-TypeCheck'),
+    Id: req.get('Id') || req.get('id'),
+    Status: req.get('Status') || req.get('status'),
+    State: req.get('State') || req.get('state'),
+    From: req.get('From') || req.get('from'),
+    Msg: req.get('Msg') || req.get('msg')
+  };
+  const b = req.body || {};
+  const q = req.query || {};
   return {
-    token: req.body.token || req.query.token || req.get('x-api-token') || '',
-    LoaiDV: Number(req.body.LoaiDV ?? req.query.LoaiDV ?? 0),
-    Device: req.body.Device || req.query.Device || '',
-    Amount: Number(req.body.Amount ?? req.query.Amount ?? 0),
-    TypeCheck: Number(req.body.TypeCheck ?? req.query.TypeCheck ?? 2),
-    Id: req.body.Id || req.query.Id || '',
-    Status: req.body.Status !== undefined ? Number(req.body.Status) : (req.query.Status !== undefined ? Number(req.query.Status) : undefined),
-    State: req.body.State !== undefined ? Number(req.body.State) : (req.query.State !== undefined ? Number(req.query.State) : undefined),
-    From: req.body.From !== undefined ? Number(req.body.From) : (req.query.From !== undefined ? Number(req.query.From) : undefined),
-    Msg: req.body.Msg || req.query.Msg || ''
+    token: b.Token || b.token || q.Token || q.token || h.token || '',
+    LoaiDV: Number(b.LoaiDV ?? q.LoaiDV ?? h.LoaiDV ?? 0),
+    Device: b.Device || q.Device || h.Device || '',
+    Amount: Number(b.Amount ?? q.Amount ?? h.Amount ?? 0),
+    TypeCheck: Number(b.TypeCheck ?? q.TypeCheck ?? h.TypeCheck ?? 2),
+    Id: b.Id || q.Id || h.Id || '',
+    Status: b.Status !== undefined ? Number(b.Status) : (q.Status !== undefined ? Number(q.Status) : (h.Status !== undefined ? Number(h.Status) : undefined)),
+    State: b.State !== undefined ? Number(b.State) : (q.State !== undefined ? Number(q.State) : (h.State !== undefined ? Number(h.State) : undefined)),
+    From: b.From !== undefined ? Number(b.From) : (q.From !== undefined ? Number(q.From) : (h.From !== undefined ? Number(h.From) : undefined)),
+    Msg: b.Msg || q.Msg || h.Msg || ''
   };
 };
 
@@ -426,10 +440,10 @@ async function handleUpdateStatus(req, res, p) {
       logger.error('Billing/update session error:', e);
     }
 
-    // Return ErrorId: 1 = Update Success, 0 = Error (according to user spec)
+    // Return success in same convention as LoaiDV=1
     return res.json({
-      ErrorId: 1,
-      Title: 'success',
+      ErrorId: 0,
+      Title: '',
       Message: '',
       Content: ''
     });

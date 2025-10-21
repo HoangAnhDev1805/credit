@@ -294,6 +294,69 @@ const refreshToken = async (req, res, next) => {
   }
 };
 
+// Protect routes but allow Token to be provided via body/query as well as Authorization header
+// Accepts:
+// - Authorization: Bearer <jwt>
+// - body.Token or query.Token (optionally prefixed with 'Bearer ')
+const protectToken = async (req, res, next) => {
+  try {
+    let token;
+
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
+      const headerToken = req.get('Token') || req.get('token') || req.get('x-token') || req.get('x-api-token');
+      const raw = headerToken || (req.body && (req.body.Token || req.body.token)) || (req.query && (req.query.Token || req.query.token));
+      if (typeof raw === 'string' && raw.length > 0) {
+        token = raw.startsWith('Bearer ') ? raw.split(' ')[1] : raw;
+      }
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized to access this route'
+      });
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findById(decoded.id).select('-password -refreshToken');
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'No user found with this token'
+        });
+      }
+
+      if (user.status !== 'active') {
+        return res.status(401).json({
+          success: false,
+          message: 'User account is blocked'
+        });
+      }
+
+      req.user = user;
+      next();
+    } catch (error) {
+      logger.error('Token verification failed (protectToken):', error);
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized to access this route'
+      });
+    }
+  } catch (error) {
+    logger.error('Auth protectToken middleware error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error in authentication'
+    });
+  }
+};
+
 module.exports = {
   protect,
   authorize,
@@ -301,5 +364,6 @@ module.exports = {
   checkOwnership,
   userRateLimit,
   checkBalance,
-  refreshToken
+  refreshToken,
+  protectToken
 };
