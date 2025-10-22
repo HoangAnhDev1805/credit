@@ -54,7 +54,7 @@ export default function CheckerPage() {
   const { user } = useAuthStore()
   
   // Setup Socket.IO connection
-  const { on: socketOn } = useSocket({ enabled: true, debug: false })
+  const { on: socketOn, isConnected } = useSocket({ enabled: true, debug: false })
 
   // Input & session
   const [cardsInput, setCardsInput] = useState("")
@@ -63,6 +63,10 @@ export default function CheckerPage() {
   const [isChecking, setIsChecking] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [cardCache, setCardCache] = useState<Map<string, CheckResult>>(new Map())
+  const [timeoutSec, setTimeoutSec] = useState<number>(120)
+  const [timeLeft, setTimeLeft] = useState<number>(0)
+  const countdownRef = useRef<NodeJS.Timeout | null>(null)
+  const [hasFetched, setHasFetched] = useState<boolean>(false)
 
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
@@ -113,6 +117,14 @@ export default function CheckerPage() {
       console.error('Report to checkcc error:', error)
     }
   }
+
+  useEffect(() => {
+    // Chỉ set Unknown khi đã thực sự bắt đầu đếm ngược (đã fetch) và hết thời gian
+    if (isChecking && hasFetched && timeLeft === 0) {
+      setResults(prev => prev.map(r => r.status === 'Checking' ? { ...r, status: 'Unknown', response: 'Timeout' } : r))
+      setIsChecking(false)
+    }
+  }, [timeLeft, isChecking, hasFetched])
 
 
   const checkingCount = useMemo(() => results.filter(r => r.status === 'Checking').length, [results])
@@ -187,10 +199,78 @@ export default function CheckerPage() {
           setBalance(userData.balance)
         }
       })
+      // Realtime session start
+      socketOn('checker:session:start', (_snap: any) => {
+        // Reset trạng thái timer cho phiên mới; chỉ khi nhận 'checker:fetch' mới bắt đầu đếm
+    setHasFetched(false)
+    setTimeLeft(0)
+    setIsChecking(true)
+        // Không bắt đầu countdown ở đây; đợi sự kiện fetch
+      })
+      // Khi ZennoPoster fetch cards → bắt đầu timeout
+      socketOn('checker:fetch', (msg: any) => {
+        try {
+          setHasFetched(true)
+          const t = Number(msg?.timeoutSec) || timeoutSec || 120
+          setTimeoutSec(t)
+          startCountdown(t)
+        } catch {}
+      })
+      // Realtime session snapshot
+      socketOn('checker:session:update', (snap: any) => {
+        if (!snap) return
+        setStats((s) => ({
+          ...s,
+          live: Number(snap.live || 0),
+          dead: Number(snap.die || 0),
+          unknown: Number(snap.unknown || 0),
+          progress: Number(snap.progress || 0)
+        }))
+        if (typeof snap.pricePerCard === 'number') setPricePerCard(snap.pricePerCard)
+        // Hoàn thành/stop → tắt trạng thái đang chạy
+        const pendingLeft = Number(snap.pending || 0)
+        if (snap.status === 'completed' || snap.stopRequested === true || pendingLeft === 0) {
+          setIsChecking(false)
+          stopCountdown()
+        }
+      })
+
+      // Realtime card result
+      socketOn('checker:card', (msg: any) => {
+        if (!msg || !msg.card) return
+        const apiStatus = String(msg.status || '').toLowerCase()
+        if (!apiStatus || apiStatus === 'pending' || apiStatus === 'checking') return
+        const status = apiStatus === 'live' ? 'Live' : apiStatus === 'die' ? 'Dead' : apiStatus === 'error' ? 'Error' : 'Unknown'
+        setResults(prev => {
+          const list = [...prev]
+          const idx = list.findIndex(r => r.card === msg.card && r.status === 'Checking')
+          if (idx !== -1) {
+            list[idx] = { ...list[idx], status: status as any, response: msg.response || '' }
+          }
+          return list
+        })
+      })
     })()
   }, [user?.balance])
 
   // Helpers
+  const startCountdown = (sec: number) => {
+    try { if (countdownRef.current) clearInterval(countdownRef.current) } catch {}
+    setTimeLeft(sec)
+    countdownRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        const next = prev - 1
+        return next >= 0 ? next : 0
+      })
+    }, 1000)
+  }
+  const stopCountdown = () => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current)
+      countdownRef.current = null
+    }
+    setTimeLeft(0)
+  }
   const validateLine = (line: string) => {
     // cc|mm|yy|cvv or cc|mm|yyyy|cvv
     return /^(\d{13,19})\|(\d{1,2})\|(\d{2}|\d{4})\|(\d{3,4})$/.test(line.trim())
@@ -249,8 +329,7 @@ export default function CheckerPage() {
       // Continue without cache - not a critical error
     }
 
-    // Map database results by card number
-    // Trả TẤT CẢ cards có zennoposter=1: live/die/error/unknown
+    // Map database results by card number (only fast-return for DIE)
     const dbResultsMap = new Map()
     dbCheckedCards.forEach((card: any) => {
       if (card.fullCard && card.status) {
@@ -279,15 +358,15 @@ export default function CheckerPage() {
           ...cached,
           id: `${Date.now()}-${index}`
         })
-      } else if (dbResult) {
-        // Sử dụng kết quả từ database
+      } else if (dbResult && dbResult.status === 'Dead') {
+        // Nếu trong DB đã có và là Die → trả luôn, không gửi Zenno
         initialResults.push({
           id: `${Date.now()}-${index}`,
           card: line,
           status: dbResult.status as any,
           response: dbResult.response
         })
-        // Lưu vào cache để lần sau nhanh hơn
+        // Cache lần sau
         cardCache.set(cardKey, {
           id: `${Date.now()}-${index}`,
           card: line,
@@ -338,17 +417,21 @@ export default function CheckerPage() {
       if (typeof data.pricePerCard === 'number' && data.pricePerCard >= 0) {
         setPricePerCard(data.pricePerCard)
       }
+      // Không start countdown ở đây; sẽ start khi nhận 'checker:fetch'
       setIsChecking(true) // Set checking state to true
 
-      // Bắt đầu polling
-      if (pollRef.current) clearInterval(pollRef.current)
-      pollRef.current = setInterval(async () => {
-        if (!data.sessionId) return
-        try {
-          const st = await apiClient.getCheckStatus(data.sessionId)
-          if (st.success) {
-            const sess = (st.data as any).session
-            const re = (st.data as any).results || []
+      // Bắt đầu polling nếu socket chưa kết nối
+      if (isConnected && isConnected()) {
+        // Socket sẽ cập nhật realtime, không cần polling
+      } else {
+        if (pollRef.current) clearInterval(pollRef.current)
+        pollRef.current = setInterval(async () => {
+          if (!data.sessionId) return
+          try {
+            const st = await apiClient.getCheckStatus(data.sessionId)
+            if (st.success) {
+              const sess = (st.data as any).session
+              const re = (st.data as any).results || []
 
             // Cập nhật results với kết quả mới từ API
             setResults(prevResults => {
@@ -423,9 +506,10 @@ export default function CheckerPage() {
             }
           }
         } catch (e) {
-          // bỏ qua lỗi tạm thời
+          // bỏ qua lỗi tạm thởi
         }
       }, 1200)
+      }
 
       toast({ title: t('common.success'), description: t('checker.messages.checkingStarted') + ` ${valid.length} ${t('checker.stats.cards')}` })
     } catch (err: any) {
@@ -535,6 +619,8 @@ export default function CheckerPage() {
             {t('checker.description')}
           </p>
         </div>
+
+      {/* Removed standalone Auto-timeout bar; countdown will be visualized in spinner */}
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="flex items-center gap-1 text-xs sm:text-sm px-2 py-1">
             <Wallet className="h-3 w-3" />
@@ -704,10 +790,10 @@ export default function CheckerPage() {
             <CardContent>
               <div className="max-h-96 overflow-y-auto space-y-2">
                 {filteredResults.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <span className="font-mono text-sm">{r.card}</span>
-                    <div className="flex items-center gap-2">
-                      <Badge
+              <div key={r.id} className="flex items-center justify-between p-3 border rounded-lg">
+                <span className="font-mono text-sm">{r.card}</span>
+                <div className="flex items-center gap-2">
+                  <Badge
                         variant={
                           r.status === "Live" ? "default" :
                           r.status === "Dead" ? "destructive" :
@@ -721,7 +807,22 @@ export default function CheckerPage() {
                         {r.status === "Error" && <AlertCircle className="h-3 w-3" />}
                         {r.status === "Unknown" && <Clock className="h-3 w-3" />}
                         {r.status === "Checking" && (
-                          <div className="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          hasFetched ? (
+                            (() => {
+                              const remainPct = Math.max(0, Math.min(100, Math.round((timeLeft/Math.max(1, timeoutSec))*100)))
+                              return (
+                                <div className="relative h-3 w-3" aria-hidden>
+                                  <div
+                                    className="absolute inset-0 rounded-full"
+                                    style={{ background: `conic-gradient(currentColor ${remainPct}%, rgba(0,0,0,0.15) 0)` }}
+                                  />
+                                  <div className="absolute inset-0.5 rounded-full bg-background" />
+                                </div>
+                              )
+                            })()
+                          ) : (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          )
                         )}
                         {r.status}
                       </Badge>

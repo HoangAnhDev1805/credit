@@ -34,6 +34,7 @@ interface SiteConfig {
   favicon: string
   thumbnail: string
   telegramSupportUrl?: string
+  socketUrl?: string
 }
 
 interface PricingConfig {
@@ -440,6 +441,24 @@ export default function AdminSettings() {
                     submitText="Lưu Liên hệ & Footer"
                     loading={saving}
                     columns={2}
+                  />
+                </div>
+              </details>
+
+              {/* Realtime & Socket.IO */}
+              <details className="group border rounded-lg" open>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer bg-sky-50/60 dark:bg-sky-950/20">
+                  <Settings className="h-4 w-4 text-sky-600" />
+                  <span className="font-medium text-sky-700 dark:text-sky-300">Realtime & Socket.IO</span>
+                </summary>
+                <div className="p-4">
+                  <SharedForm
+                    fields={[{ name: 'socketUrl', label: 'Socket.IO URL', type: 'text', placeholder: 'https://checkcc.live' }]}
+                    initialData={siteConfig || {}}
+                    onSubmit={handleSaveSiteConfig}
+                    submitText="Lưu Socket.IO"
+                    loading={saving}
+                    columns={1}
                   />
                 </div>
               </details>

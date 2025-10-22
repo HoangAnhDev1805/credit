@@ -98,6 +98,7 @@ const createCryptApiAddress = async (req, res, next) => {
         cryptapi_coin: addressResult.data.coin,
         cryptapi_minimum_transaction: addressResult.data.minimum_transaction_coin,
         cryptapi_qr_code: addressResult.data.qr_code,
+        qrcode_url: addressResult.data.qrcode_url,
         cryptapi_payment_uri: addressResult.data.payment_uri,
         cryptapi_callback_url: addressResult.data.callback_url
       }
@@ -203,7 +204,21 @@ const handleCryptApiWebhook = async (req, res) => {
 
       // Mark as processed
       processedWebhooks.add(uuid);
-      
+
+      // Realtime notify user about processing status
+      try {
+        const io = req.app.get('io');
+        if (io && paymentRequest.userId) {
+          io.to(paymentRequest.userId._id.toString()).emit('payment:update', {
+            orderId: order_id,
+            status: 'processing',
+            coin: coin?.toUpperCase(),
+            amount: value_coin,
+            txid: txid_in
+          });
+        }
+      } catch (e) { logger.warn('[CryptAPI Webhook] emit processing failed:', e?.message); }
+
       return res.status(200).send('*ok*');
 
     } else if (pending === 0 && confirmations >= 1) {
@@ -270,6 +285,14 @@ const handleCryptApiWebhook = async (req, res) => {
             amount: value_coin,
             txid: txid_in
           });
+          // Also emit generic status update for clients listening to status feed
+          io.to(user._id.toString()).emit('payment:update', {
+            orderId: order_id,
+            status: 'approved',
+            coin: coin?.toUpperCase(),
+            amount: value_coin,
+            txid: txid_in
+          });
         }
       }
 
@@ -320,6 +343,9 @@ const checkCryptApiOrderStatus = async (req, res, next) => {
         address_in: paymentRequest.metadata?.cryptapi_address_in,
         txid_in: paymentRequest.metadata?.cryptapi_txid_in,
         value_coin: paymentRequest.metadata?.cryptapi_value_coin,
+        qrcode_url: paymentRequest.metadata?.qrcode_url || paymentRequest.metadata?.cryptapi_qr_code,
+        qr_code: paymentRequest.metadata?.cryptapi_qr_code,
+        payment_uri: paymentRequest.metadata?.cryptapi_payment_uri,
         createdAt: paymentRequest.createdAt,
         expiresAt: paymentRequest.expiresAt,
         processedAt: paymentRequest.processedAt

@@ -1,6 +1,8 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const express = require('express');
+const http = require('http');
 const compression = require('compression');
 const connectDB = require('./config/database');
 const logger = require('./config/logger');
@@ -24,6 +26,24 @@ const {
 // const adminRoutes = require('./routes/admin');
 
 const app = express();
+const serverHttp = http.createServer(app);
+
+// Socket.IO for realtime updates
+let io;
+try {
+  const { Server } = require('socket.io');
+  io = new Server(serverHttp, {
+    cors: { origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'] }
+  });
+  app.set('io', io);
+  io.on('connection', (socket) => {
+    // Basic join room by user id if provided
+    const uid = socket.handshake.auth?.userId || socket.handshake.query?.userId;
+    if (uid) socket.join(String(uid));
+  });
+} catch (e) {
+  console.warn('Socket.IO init failed:', e?.message);
+}
 
 // Trust proxy (for accurate IP addresses behind reverse proxy)
 app.set('trust proxy', 1);
@@ -68,28 +88,49 @@ try {
   setInterval(async () => {
     try {
       const now = new Date();
-      const timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
-      // If card has explicit checkDeadlineAt past now OR lastCheckAt older than timeout, mark unknown
-      const threshold = new Date(Date.now() - timeoutSec * 1000);
+      // Only timeout when per-card deadline passed
       const res = await Card.updateMany(
         {
           zennoposter: 0,
           status: { $in: ['pending', 'checking'] },
-          $or: [
-            { checkDeadlineAt: { $exists: true, $lte: now } },
-            { checkDeadlineAt: { $exists: false }, lastCheckAt: { $lte: threshold } }
-          ]
+          checkDeadlineAt: { $exists: true, $lte: now }
         },
         {
           $set: {
             status: 'unknown',
             errorMessage: 'Timeout by system',
-            updatedAt: new Date()
+            updatedAt: new Date(),
+            zennoposter: 1
           }
         }
       );
       if (res && res.modifiedCount) {
         console.log(`[Sweeper] Auto-timeout ${res.modifiedCount} cards to unknown`);
+        try {
+          const io = app.get('io');
+          if (io) {
+            // Emit card results for recently updated unknowns (last 5s)
+            const recent = await Card.find({
+              status: 'unknown',
+              zennoposter: 1,
+              updatedAt: { $gte: new Date(Date.now() - 5000) }
+            }).select('_id fullCard status errorMessage sessionId originUserId').lean();
+            for (const c of recent) {
+              const room = c.originUserId ? String(c.originUserId) : null;
+              if (room) {
+                io.to(room).emit('checker:card', {
+                  sessionId: c.sessionId,
+                  cardId: String(c._id),
+                  card: c.fullCard,
+                  status: c.status,
+                  response: c.errorMessage || ''
+                });
+              }
+            }
+          }
+        } catch (ee) {
+          console.error('Sweeper emit error:', ee.message);
+        }
       }
     } catch (e) {
       console.error('Sweeper error:', e.message);
@@ -204,7 +245,6 @@ try {
 
 
 // Serve static files (uploads) - use absolute path
-const path = require('path');
 const uploadsPath = path.join(__dirname, '../uploads');
 app.use('/uploads', express.static(uploadsPath));
 
@@ -257,7 +297,7 @@ function startServerWithFallback(initialPort, maxAttempts = 10) {
 
     const tryListen = () => {
       attempts += 1;
-      srv = app.listen(port, () => {
+      srv = serverHttp.listen(port, () => {
         logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${port}`);
         
         // Banner khởi động tiếng Việt

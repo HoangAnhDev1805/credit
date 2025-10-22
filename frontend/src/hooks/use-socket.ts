@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
+import { io, Socket } from 'socket.io-client'
 import { useAuthStore } from '@/lib/auth'
 
 type SocketEventHandler = (data: any) => void
@@ -8,94 +9,72 @@ interface UseSocketOptions {
   debug?: boolean
 }
 
-/**
- * Custom hook để manage Socket.IO connection
- * Fallback gracefully nếu Socket.IO không available
- * Không gây lỗi nếu connection fail
- * 
- * Hiện tại là stub implementation - có thể integrate Socket.IO sau
- */
 export function useSocket(options: UseSocketOptions = {}) {
   const { enabled = true, debug = false } = options
-  const { token } = useAuthStore()
-  const listenersRef = useRef<Map<string, Set<SocketEventHandler>>>(new Map())
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const { token, user } = useAuthStore()
+  const socketRef = useRef<Socket | null>(null)
+  const [connected, setConnected] = useState(false)
+  const [endpoint, setEndpoint] = useState<string | null>(process.env.NEXT_PUBLIC_SOCKET_URL || null)
 
-  // Setup polling fallback nếu Socket.IO không available
+  // Load endpoint from public config if not set by env
+  useEffect(() => {
+    if (!enabled) return
+    if (endpoint) return
+    ;(async () => {
+      try {
+        const resp = await fetch('/api/config/public', { credentials: 'include' })
+        if (resp.ok) {
+          const js = await resp.json()
+          const ep = js?.data?.general?.socket_url
+          if (ep && typeof ep === 'string') setEndpoint(ep)
+          else if (typeof window !== 'undefined') setEndpoint(window.location.origin)
+        } else if (typeof window !== 'undefined') {
+          setEndpoint(window.location.origin)
+        }
+      } catch {
+        if (typeof window !== 'undefined') setEndpoint(window.location.origin)
+      }
+    })()
+  }, [enabled, endpoint])
+
+  // Lazy connect when endpoint available
   useEffect(() => {
     if (!enabled || !token) return
+    if (!endpoint) return
 
-    // Polling fallback - check user balance mỗi 30 giây
-    const pollData = async () => {
-      try {
-        const response = await fetch('/api/auth/me', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-        
-        if (response.ok) {
-          const data = await response.json()
-          if (data.data?.user) {
-            // Trigger balance-changed event nếu có listeners
-            const balanceListeners = listenersRef.current.get('user:balance-changed')
-            if (balanceListeners && balanceListeners.size > 0) {
-              balanceListeners.forEach(handler => {
-                try {
-                  handler(data.data.user)
-                } catch (err) {
-                  console.error('[Socket] Error in balance listener:', err)
-                }
-              })
-            }
-          }
-        }
-      } catch (error) {
-        if (debug) console.warn('[Socket Polling] Error:', error)
-      }
+    try {
+      const s = io(endpoint, {
+        transports: ['websocket', 'polling'],
+        withCredentials: true,
+        auth: { token, userId: user?.id },
+        query: { userId: user?.id }
+      })
+
+      socketRef.current = s
+      s.on('connect', () => { setConnected(true); if (debug) console.log('[Socket] connected', s.id) })
+      s.on('disconnect', () => { setConnected(false); if (debug) console.log('[Socket] disconnected') })
+
+      return () => { try { s.disconnect() } catch {} }
+    } catch (e) {
+      if (debug) console.warn('[Socket] init error:', e)
     }
+  }, [enabled, token, user?.id, debug, endpoint])
 
-    // Poll mỗi 30 giây
-    pollIntervalRef.current = setInterval(pollData, 30000)
-
-    // Cleanup
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
-    }
-  }, [enabled, token, debug])
-
-  // Subscribe to an event
   const on = useCallback((event: string, handler: SocketEventHandler) => {
-    if (!listenersRef.current.has(event)) {
-      listenersRef.current.set(event, new Set())
-    }
-
-    listenersRef.current.get(event)?.add(handler)
-
-    // Return unsubscribe function
-    return () => {
-      listenersRef.current.get(event)?.delete(handler)
-    }
+    const s = socketRef.current
+    if (!s) return () => {}
+    s.on(event, handler)
+    return () => { try { s.off(event, handler) } catch {} }
   }, [])
 
-  // Emit an event (fallback không hoạt động vì không có backend Socket.IO)
   const emit = useCallback((event: string, data?: any) => {
-    if (debug) console.log(`[Socket Emit - Fallback] ${event}:`, data)
-    // Fallback: không emit được, chỉ log
+    const s = socketRef.current
+    if (!s) return
+    try { s.emit(event, data) } catch (e) { if (debug) console.warn('[Socket emit]', e) }
   }, [debug])
 
-  // Get connection status
-  const isConnected = useCallback(() => {
-    return true // Fallback luôn return true vì dùng polling
-  }, [])
+  const isConnected = useCallback(() => connected, [connected])
 
-  return {
-    on,
-    emit,
-    isConnected,
-    socket: null
-  }
+  return { on, emit, isConnected, socket: socketRef.current }
 }
 

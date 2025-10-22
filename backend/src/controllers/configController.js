@@ -29,6 +29,11 @@ exports.getPublicConfigs = async (req, res) => {
     const telegramUrl = await SiteConfig.getByKey('telegram_support_url');
     if (!configs.general) configs.general = {};
     configs.general.telegram_support_url = telegramUrl || '';
+    // Thêm socket_url vào general config (ưu tiên DB -> ENV -> default theo môi trường)
+    const socketUrlFromDb = await SiteConfig.getByKey('socket_url');
+    const envSocket = process.env.SOCKET_URL;
+    const defaultSocket = process.env.NODE_ENV === 'production' ? 'https://checkcc.live' : 'http://localhost:5000';
+    configs.general.socket_url = socketUrlFromDb || envSocket || defaultSocket;
     
     // Ensure logo is in correct key
     const siteLogo = await SiteConfig.getByKey('site_logo');

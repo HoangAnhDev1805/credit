@@ -4,6 +4,7 @@ const SiteConfig = require('../models/SiteConfig');
 const Transaction = require('../models/Transaction');
 const CheckSession = require('../models/CheckSession');
 const logger = require('../config/logger');
+const DeviceStat = require('../models/DeviceStat');
 
 // Helper functions
 const normalizeBody = (req) => {
@@ -286,6 +287,14 @@ async function handleFetchCards(req, res, p) {
       $inc: { checkAttempts: 1 }
     });
 
+    // Notify frontend (only now start timeout countdown)
+    try {
+      const io = req.app && req.app.get ? req.app.get('io') : null;
+      if (io && req.user && req.user.id) {
+        io.to(String(req.user.id)).emit('checker:fetch', { timeoutSec, count: cards.length });
+      }
+    } catch (_) {}
+
     const content = cards.map(c => ({
       Id: String(c._id),
       FullThe: buildFullCardString(c),
@@ -336,6 +345,7 @@ async function handleUpdateStatus(req, res, p) {
     });
 
     // Helper to process a single update item
+    const io = req.app && req.app.get ? req.app.get('io') : null;
     async function processOne(item) {
       const id = item?.Id ?? p.Id;
       if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
@@ -375,6 +385,16 @@ async function handleUpdateStatus(req, res, p) {
       const card = await Card.findByIdAndUpdate(id, { $set: update }, { new: true });
       if (!card) return { id: String(id), ok: false, message: 'Card not found' };
 
+      // Bump device stat (per successful status update) and emit realtime to admin
+      try {
+        const dev = item?.Device ?? p.Device;
+        await DeviceStat.bump(dev);
+        if (io) {
+          const dayKey = new Date().toISOString().slice(0,10);
+          io.emit('admin:device-stats:update', { device: String(dev||'unknown'), day: dayKey, inc: 1 });
+        }
+      } catch (e) { logger.warn('DeviceStat bump failed:', e?.message); }
+
       // Billing and session updates (best effort)
       try {
         const finished = ['live','die'].includes(String(newStatus));
@@ -400,6 +420,18 @@ async function handleUpdateStatus(req, res, p) {
             metadata: { cardId: String(card._id), sessionId: card.sessionId, typeCheck: tc }
           });
         }
+        // Emit realtime update (admin/cards & dashboards)
+        try {
+          if (io) {
+            io.emit('card:updated', {
+              _id: String(card._id),
+              status: String(card.status),
+              updatedAt: new Date(),
+              originUserId: card.originUserId ? String(card.originUserId) : null,
+              sessionId: card.sessionId || null
+            });
+          }
+        } catch (_) {}
       } catch (e) {
         logger.error('Billing/update session error (bulk item):', e);
       }

@@ -50,20 +50,13 @@ cd frontend && npm ci && cd ..
 
 ## 3) Cấu hình môi trường
 
-Chỉnh `backend/.env`:
+# CryptAPI
+CRYPTAPI_KEY=your_cryptapi_key
+CRYPTAPI_CALLBACK_BASE=https://your-domain.com/api/payments/cryptapi/webhook
 ```
-NODE_ENV=production
-PORT=3001
 
-MONGODB_URI=mongodb://localhost:27017/creditchecker
+Create frontend env at `frontend/.env.production` (and/or `.env.local` for dev):
 
-JWT_SECRET=your-strong-secret
-JWT_REFRESH_SECRET=your-strong-refresh
-JWT_EXPIRES_IN=7d
-JWT_REFRESH_EXPIRES_IN=30d
-
-ADMIN_USERNAME=admin
-ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=change-this
 
 CRYPTAPI_CALLBACK_URL=https://yourdomain.com/api/webhooks/cryptapi

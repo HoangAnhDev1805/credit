@@ -176,6 +176,7 @@ const getPaymentRequests = async (req, res, next) => {
     // Format response
     const formattedRequests = requests.map(request => ({
       id: request._id,
+      orderId: request.transactionId || undefined,
       amount: request.amount,
       fee: request.fee,
       finalAmount: request.finalAmount,
@@ -185,6 +186,9 @@ const getPaymentRequests = async (req, res, next) => {
       expiresAt: request.expiresAt,
       processedAt: request.processedAt,
       createdAt: request.createdAt,
+      // surface a few crypto fields if available for convenience
+      coin: request.metadata?.cryptapi_coin,
+      address_in: request.metadata?.cryptapi_address_in,
       paymentMethod: {
         name: request.paymentMethodId?.name,
         type: request.paymentMethodId?.type,

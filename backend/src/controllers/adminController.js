@@ -469,7 +469,10 @@ const getCards = async (req, res, next) => {
       page = 1,
       limit = 10,
       search = '',
+      q = '',
+      mode = 'contains', // startsWith|contains|endsWith
       status = '',
+      statuses = '', // comma-separated
       brand = '',
       sortBy = 'createdAt',
       sortOrder = 'desc'
@@ -478,15 +481,29 @@ const getCards = async (req, res, next) => {
     // Build filter
     const filter = {};
 
-    if (search) {
+    // Back-compat: prefer q over search
+    const term = (q || search || '').trim();
+    if (term) {
+      let pattern = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (mode === 'startsWith') pattern = `^${pattern}`;
+      else if (mode === 'endsWith') pattern = `${pattern}$`;
+      else pattern = `${pattern}`; // contains
+      const regex = { $regex: pattern, $options: 'i' };
       filter.$or = [
-        { fullCard: { $regex: search, $options: 'i' } },
-        { cardNumber: { $regex: search, $options: 'i' } }
+        { fullCard: regex },
+        { cardNumber: regex }
       ];
     }
 
     if (status) {
       filter.status = status;
+    }
+    if (statuses) {
+      const arr = String(statuses)
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (arr.length > 0) filter.status = { $in: arr };
     }
 
     if (brand) {
@@ -500,7 +517,7 @@ const getCards = async (req, res, next) => {
     // Execute query with pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [cards, total, totalsByStatus] = await Promise.all([
+    const [cards, total, filteredStats, dupAgg, globalAgg] = await Promise.all([
       Card.find(filter)
         .populate('userId', 'username email')
         .populate('originUserId', 'username email')
@@ -508,23 +525,55 @@ const getCards = async (req, res, next) => {
         .skip(skip)
         .limit(parseInt(limit)),
       Card.countDocuments(filter),
-      // Global totals across entire collection (not filtered by page)
+      // Totals by status in FILTERED set (not global)
       Card.aggregate([
+        { $match: filter },
         { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]),
+      // Duplicate count for FILTERED set by cardNumber
+      Card.aggregate([
+        { $match: { ...filter, cardNumber: { $exists: true, $ne: '' } } },
+        { $group: { _id: '$cardNumber', c: { $sum: 1 } } },
+        { $match: { c: { $gt: 1 } } },
+        { $count: 'dups' }
+      ]),
+      // Global totals across entire collection (không áp filter), case-insensitive + alias
+      Card.aggregate([
+        { $match: { status: { $exists: true, $ne: null } } },
+        { $group: { _id: { $toLower: '$status' }, count: { $sum: 1 } } }
       ])
     ]);
+
+    const statMap = new Map();
+    for (const it of filteredStats) statMap.set(String(it._id || ''), it.count || 0);
+    const stats = {
+      foundTotal: total,
+      duplicateCount: dupAgg?.[0]?.dups || 0,
+      liveCount: statMap.get('live') || 0,
+      dieCount: statMap.get('die') || 0,
+      unknownCount: (statMap.get('unknown') || 0) + (statMap.get('checking') || 0),
+      pendingCount: (statMap.get('pending') || 0) + (statMap.get('checking') || 0)
+    };
+
+    // Build globalStats (toàn bộ DB) folding aliases
+    let gTotal = 0, gLive = 0, gDie = 0, gUnknown = 0, gChecking = 0;
+    for (const it of globalAgg || []) {
+      const key = String(it._id || '').toLowerCase();
+      const c = Number(it.count || 0);
+      gTotal += c;
+      if (key === 'live') gLive += c;
+      else if (key === 'die' || key === 'dead') gDie += c;
+      else if (key === 'unknown') gUnknown += c;
+      else if (key === 'checking' || key === 'pending') gChecking += c;
+    }
+    const globalStats = { total: gTotal, live: gLive, die: gDie, unknown: gUnknown, checking: gChecking };
 
     res.json({
       success: true,
       data: {
         cards,
-        totals: {
-          live: totalsByStatus.find?.(x => x._id === 'live')?.count || 0,
-          die: totalsByStatus.find?.(x => x._id === 'die')?.count || 0,
-          unknown: totalsByStatus.find?.(x => x._id === 'unknown')?.count || 0,
-          checking: totalsByStatus.find?.(x => x._id === 'checking')?.count || 0,
-          all: (totalsByStatus || []).reduce((s, x) => s + (x.count || 0), 0)
-        },
+        stats,
+        globalStats,
         pagination: {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / parseInt(limit)),
@@ -656,6 +705,18 @@ module.exports = {
   getDashboard,
   getUsers,
   createUser,
+  // Device stats: per-device daily and total counts
+  getDeviceStats: async (req, res) => {
+    try {
+      const DeviceStat = require('../models/DeviceStat');
+      const { from, to } = req.query;
+      const data = await DeviceStat.getStats({ from, to });
+      res.json({ success: true, data: { devices: data } });
+    } catch (error) {
+      logger.error('Get device stats error:', error);
+      res.status(500).json({ success: false, message: 'Failed to get device stats', error: error.message });
+    }
+  },
   getUserById: async (req, res, next) => {
     try {
       const { id } = req.params;
@@ -784,6 +845,20 @@ module.exports = {
     }
   },
   getCards,
+  // Bulk delete cards by IDs
+  deleteCardsBulk: async (req, res, next) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(Boolean) : [];
+      if (!ids.length) {
+        return res.status(400).json({ success: false, message: 'Thiếu danh sách ID cần xóa' });
+      }
+      const result = await Card.deleteMany({ _id: { $in: ids } });
+      res.json({ success: true, message: 'Đã xóa thẻ', data: { deletedCount: result.deletedCount || 0 } });
+    } catch (error) {
+      logger.error('Bulk delete cards error:', error);
+      res.status(500).json({ success: false, message: 'Failed to delete cards', error: error.message });
+    }
+  },
   getPaymentRequests,
   updatePaymentRequest: async (req, res, next) => {
     try {
@@ -874,6 +949,8 @@ module.exports = {
         address: general?.address || '',
         footerText: general?.footer_text || '',
         telegramSupportUrl: general?.telegram_support_url || '',
+        // Socket.IO URL
+        socketUrl: general?.socket_url || '',
         // Checker config
         checkerDefaultBatchSize: await SiteConfig.getByKey('checker_default_batch_size') || 5,
         checkerCardTimeoutSec: await SiteConfig.getByKey('checker_card_timeout_sec') || 120
@@ -933,6 +1010,8 @@ module.exports = {
       if (payload.address !== undefined) updates['address'] = payload.address;
       if (payload.footerText !== undefined) updates['footer_text'] = payload.footerText;
       if (payload.telegramSupportUrl !== undefined) updates['telegram_support_url'] = payload.telegramSupportUrl;
+      // Realtime Socket
+      if (payload.socketUrl !== undefined) updates['socket_url'] = payload.socketUrl;
       // Checker settings
       if (payload.checkerDefaultBatchSize !== undefined) updates['checker_default_batch_size'] = Number(payload.checkerDefaultBatchSize);
       if (payload.checkerCardTimeoutSec !== undefined) updates['checker_card_timeout_sec'] = Number(payload.checkerCardTimeoutSec);

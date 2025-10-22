@@ -470,6 +470,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     </div>
                   </div>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => router.push('/dashboard/card-history')}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Card History
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   {user?.role === 'admin' && (
                     <>
                       <DropdownMenuItem onClick={() => router.push('/admin')}>

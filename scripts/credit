@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -e
+APP_ROOT="/opt/apps/creditv2"
+BACKEND_NAME="checkcc-backend"
+FRONTEND_NAME="frontend"
+
+usage() {
+  echo "Usage: credit [start|restart|stop|status|auto] [backend|frontend|all]";
+  exit 1;
+}
+
+cmd=${1:-}
+sub=${2:-all}
+
+case "$cmd" in
+  start)
+    # Backend
+    if pm2 describe "$BACKEND_NAME" >/dev/null 2>&1; then
+      pm2 restart "$BACKEND_NAME"
+    else
+      pm2 start "$APP_ROOT/backend/src/server.js" --name "$BACKEND_NAME"
+    fi
+    # Frontend
+    if pm2 describe "$FRONTEND_NAME" >/dev/null 2>&1; then
+      pm2 restart "$FRONTEND_NAME"
+    else
+      cd "$APP_ROOT/frontend" && pm2 start npm --name "$FRONTEND_NAME" -- start
+    fi
+    ;;
+  restart)
+    case "$sub" in
+      backend) pm2 restart "$BACKEND_NAME" ;;
+      frontend) pm2 restart "$FRONTEND_NAME" ;;
+      all|*) pm2 restart "$BACKEND_NAME" || true; pm2 restart "$FRONTEND_NAME" || true ;;
+    esac
+    ;;
+  stop)
+    case "$sub" in
+      backend) pm2 stop "$BACKEND_NAME" || true ;;
+      frontend) pm2 stop "$FRONTEND_NAME" || true ;;
+      all|*) pm2 stop "$BACKEND_NAME" || true; pm2 stop "$FRONTEND_NAME" || true ;;
+    esac
+    ;;
+  status)
+    pm2 status "$BACKEND_NAME" || true
+    pm2 status "$FRONTEND_NAME" || true
+    ;;
+  auto)
+    case "$sub" in
+      on)
+        pm2 save
+        pm2 startup systemd -u "$USER" --hp "$HOME" || true
+        echo "Auto start enabled (pm2 startup + save)."
+        ;;
+      off)
+        pm2 unstartup systemd -u "$USER" --hp "$HOME" || true
+        echo "Auto start disabled (pm2 unstartup)."
+        ;;
+      *) usage ;;
+    esac
+    ;;
+  *) usage ;;
+esac

@@ -207,30 +207,26 @@ const getHistory = async (req, res, next) => {
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
 
-    // Build query
-    const query = { user: userId };
-    
+    // Build query: history of cards submitted by this user
+    const query = { originUserId: userId };
+
     if (status) {
-      query.status = status;
+      // accept both 'die' and 'dead'
+      query.status = status === 'dead' ? 'die' : status;
     }
-    
+
     if (checkType) {
-      query.checkType = parseInt(checkType);
+      query.typeCheck = parseInt(checkType);
     }
-    
+
     if (startDate || endDate) {
       query.createdAt = {};
-      if (startDate) {
-        query.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        query.createdAt.$lte = new Date(endDate);
-      }
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
     }
 
     // Get cards with pagination
     const cards = await Card.find(query)
-      .populate('transaction', 'amount createdAt')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -242,15 +238,15 @@ const getHistory = async (req, res, next) => {
     // Format response
     const formattedCards = cards.map(card => ({
       id: card._id,
-      cardNumber: card.maskedCardNumber,
+      // prefer masked or full when available
+      cardNumber: card.maskedCardNumber || card.fullCard || card.cardNumber,
       brand: card.brand,
       bin: card.bin,
-      status: card.status,
-      checkType: card.checkType,
-      response: card.response,
+      status: card.status === 'die' ? 'dead' : (card.status || 'unknown'),
+      checkType: card.typeCheck,
+      response: card.response || card.errorMessage,
       checkedAt: card.checkedAt,
-      createdAt: card.createdAt,
-      transaction: card.transaction
+      createdAt: card.createdAt
     }));
 
     res.json({

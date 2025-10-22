@@ -113,12 +113,16 @@ exports.startOrStop = async (req, res) => {
 
     // Lấy userId stock zenno
     const stockUserId = await SiteConfig.getByKey('post_api_user_id');
-    if (!stockUserId || !mongoose.Types.ObjectId.isValid(String(stockUserId))) {
-      return res.status(500).json({ success: false, message: 'Chưa cấu hình post_api_user_id (stock)' });
+    let stockIdStr = String(stockUserId || '').trim();
+    if (!stockIdStr || !mongoose.Types.ObjectId.isValid(stockIdStr)) {
+      stockIdStr = String(userId);
     }
 
     const sid = crypto.randomUUID();
+    // Lấy timeoutSec từ cấu hình
+    let timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
     const session = await CheckSession.create({ sessionId: sid, userId, total: parsed.length, pending: parsed.length, pricePerCard, gate });
+    try { const io = req.app.get('io'); if (io) { io.to(String(userId)).emit('checker:session:start', { sessionId: sid, total: parsed.length, pricePerCard, timeoutSec }); } } catch {}
 
     // Insert cards vào stock user, gắn originUserId + sessionId
     const docs = parsed.map(c => {
@@ -129,31 +133,61 @@ exports.startOrStop = async (req, res) => {
         expiryMonth: c.expiryMonth,
         expiryYear: c.expiryYear,
         cvv: c.cvv,
-        fullCard: c.fullCard,
-        status: 'pending', // Start with pending, will be updated to checking when fetched, then to live/die/unknown when result comes back
-        zennoposter: 0, // 0 = waiting for ZennoPoster result, 1 = ZennoPoster posted result
-        userId: new mongoose.Types.ObjectId(String(stockUserId)),
-        originUserId: new mongoose.Types.ObjectId(String(userId)),
+        fullCard: `${c.cardNumber}|${String(c.expiryMonth).padStart(2,'0')}|${c.expiryYear}|${c.cvv}`,
+        userId: stockIdStr,
+        originUserId: userId,
         sessionId: sid,
-        price: pricePerCard,
-        typeCheck: Number(checkType) === 2 ? 2 : 1,
-        bin,
-        brand
+        status: 'checking',
+        typeCheck: gate,
+        brand,
+        bin
       };
     });
 
     // Handle duplicate cards - use upsert instead of insertMany
-    const bulkOps = docs.map(doc => ({
-      updateOne: {
-        filter: { cardNumber: doc.cardNumber, userId: doc.userId },
-        update: { $set: doc },
-        upsert: true
-      }
-    }));
+    const bulkOps = docs.map(doc => {
+      // Disjoint updates to avoid conflicts between $setOnInsert and $set
+      const insertDoc = {
+        cardNumber: doc.cardNumber,
+        expiryMonth: doc.expiryMonth,
+        expiryYear: doc.expiryYear,
+        cvv: doc.cvv,
+        fullCard: doc.fullCard,
+        status: doc.status,
+        zennoposter: doc.zennoposter,
+        userId: doc.userId
+      };
+      return ({
+        updateOne: {
+          filter: { cardNumber: doc.cardNumber, userId: doc.userId },
+          update: {
+            // Only set base fields on insert
+            $setOnInsert: insertDoc,
+            // Always set linkage fields and latest metadata
+            $set: {
+              originUserId: doc.originUserId,
+              sessionId: doc.sessionId,
+              price: doc.price,
+              typeCheck: doc.typeCheck,
+              bin: doc.bin,
+              brand: doc.brand,
+              lastCheckAt: new Date()
+            }
+          },
+          upsert: true
+        }
+      });
+    });
 
+    // Áp hạn chót kiểm tra theo cấu hình (per-card)
+    const deadline = new Date(Date.now() + timeoutSec * 1000);
     await Card.bulkWrite(bulkOps, { ordered: false });
+    await Card.updateMany(
+      { sessionId: sid, userId: stockIdStr },
+      { $set: { checkDeadlineAt: deadline, status: 'checking', lastCheckAt: new Date(), zennoposter: 0 } }
+    );
 
-    return res.json({ success: true, message: 'Đã tạo phiên kiểm tra', data: { sessionId: sid, estimatedCost: estimated, pricePerCard, total: parsed.length } });
+    return res.json({ success: true, message: 'Đã tạo phiên kiểm tra', data: { sessionId: sid, estimatedCost: estimated, pricePerCard, total: parsed.length, timeoutSec } });
   } catch (err) {
     logger.error('startOrStop error:', err);
     return res.status(500).json({ success: false, message: 'Lỗi hệ thống', error: err.message });
@@ -175,8 +209,8 @@ exports.getStatus = async (req, res) => {
     ]);
     const counts = agg.reduce((acc, it) => { acc[it._id] = it.count; return acc; }, {});
     const total = await Card.countDocuments({ sessionId });
-    // processed = cards có kết quả final (live/die/unknown/error), KHÔNG bao gồm pending/checking
-    const processed = (counts['live'] || 0) + (counts['die'] || 0) + (counts['unknown'] || 0) + (counts['error'] || 0);
+    // processed = số thẻ đã có kết quả từ ZennoPoster (zennoposter=1)
+    const processed = await Card.countDocuments({ sessionId, zennoposter: 1 });
     const live = counts['live'] || 0;
     const die = counts['die'] || 0;
     const error = counts['error'] || 0;
@@ -184,6 +218,26 @@ exports.getStatus = async (req, res) => {
     const pending = total - processed; // Cards còn lại (pending/checking)
     
     logger.info(`[GetStatus] Session ${sessionId}: total=${total}, processed=${processed}, pending=${pending}, live=${live}, die=${die}, unknown=${unknown}`);
+
+    // Emit session snapshot via socket if available
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(String(userId)).emit('checker:session:update', {
+          sessionId,
+          total,
+          processed,
+          pending,
+          live,
+          die,
+          error,
+          unknown,
+          pricePerCard,
+          billedAmount,
+          progress: total > 0 ? Math.round((processed / total) * 100) : 0
+        });
+      }
+    } catch {}
 
     const pricePerCard = session.pricePerCard || 0;
     const billedAmount = await Card.aggregate([
@@ -254,6 +308,21 @@ exports.getStatus = async (req, res) => {
       .lean();
     
     logger.info(`[GetStatus] Session ${sessionId}: Returning ${recent.length} results from ZennoPoster (zennoposter=1)`);
+    // Emit recent results via socket (throttled by caller)
+    try {
+      const io = req.app.get('io');
+      if (io && recent && recent.length) {
+        for (const c of recent) {
+          io.to(String(userId)).emit('checker:card', {
+            sessionId,
+            cardId: String(c._id),
+            card: c.fullCard,
+            status: c.status,
+            response: c.errorMessage || ''
+          });
+        }
+      }
+    } catch {}
 
     return res.json({
       success: true,

@@ -25,9 +25,10 @@ const {
   updateUiConfig,
   getCryptApiConfig,
   updateCryptApiConfig,
-
   getPaymentConfig,
-  updatePaymentConfig
+  updatePaymentConfig,
+  deleteCardsBulk,
+  getDeviceStats
 } = require('../controllers/adminController');
 const { protect, authorize } = require('../middleware/auth');
 const { validateUserUpdate } = require('../middleware/validation');
@@ -38,6 +39,7 @@ router.use(authorize('admin'));
 
 // Dashboard routes
 router.get('/dashboard', getDashboard);
+router.get('/device-stats', getDeviceStats);
 
 // User management routes
 router.get('/users', getUsers);
@@ -49,6 +51,7 @@ router.get('/users/:id/cards', getUserCards);
 
 // Card management routes
 router.get('/cards', getCards);
+router.delete('/cards', deleteCardsBulk);
 
 // Payment management routes
 router.get('/payments', getPaymentRequests);

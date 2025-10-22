@@ -377,6 +377,7 @@ siteConfigSchema.statics.initializeDefaults = async function() {
     { key: 'site_logo', value: '/logo.png', type: 'file', category: 'general', label: 'Site Logo', isPublic: true },
     { key: 'site_favicon', value: '/favicon.ico', type: 'file', category: 'general', label: 'Site Favicon', isPublic: true },
     { key: 'site_thumbnail', value: '/logo.png', type: 'file', category: 'general', label: 'Site Thumbnail', isPublic: true },
+    { key: 'socket_url', value: 'https://checkcc.live', type: 'url', category: 'general', label: 'Socket.IO URL', isPublic: true },
     { key: 'contact_email', value: 'support@example.com', type: 'email', category: 'general', label: 'Contact Email', isPublic: true },
     { key: 'telegram_support_url', value: '', type: 'url', category: 'general', label: 'Telegram Support URL', isPublic: true },
 

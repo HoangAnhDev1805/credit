@@ -9,6 +9,7 @@ import { useI18n } from '@/components/I18nProvider'
 import { useToast } from '@/hooks/use-toast'
 import { useAuthStore } from '@/lib/auth'
 import { apiClient } from '@/lib/api'
+import { useSocket } from '@/hooks/use-socket'
 import {
   Dialog,
   DialogContent,
@@ -78,6 +79,7 @@ export default function CryptoPaymentPage() {
   const { t } = useI18n()
   const { toast } = useToast()
   const { user } = useAuthStore()
+  const { on: socketOn, isConnected } = useSocket({ enabled: true })
 
   const [creditPackages, setCreditPackages] = useState<any[]>([])
   const [conversionRate, setConversionRate] = useState(10)
@@ -164,9 +166,46 @@ export default function CryptoPaymentPage() {
     Promise.all([
       loadConfig(),
       checkPendingPayment()
-    ]).catch(err => {
-      // Failed to load page data
-    })
+    ]).then(async () => {
+      // If there is a pending crypto payment, prefill paymentData to show banner and countdown
+      try {
+        const pendingRes = await apiClient.get('/payments/cryptapi/check-pending')
+        const p = pendingRes?.data?.data?.payment
+        if (pendingRes?.data?.success && pendingRes?.data?.data?.hasPending && p && p.orderId) {
+          setPaymentData({
+            paymentRequestId: '',
+            orderId: p.orderId,
+            coin: (p.coin || selectedCoin || 'btc'),
+            amount: p.amount || getAmount(),
+            address_in: p.address_in || '',
+            minimum_transaction_coin: 0,
+            expiresAt: p.expiresAt,
+            instructions: 'Send the exact amount to the address above'
+          } as any)
+          setOrderStatus('pending')
+          // Không bật banner
+
+          // Fetch full status to populate QR fields for dialog and right pane
+          try {
+            const st = await apiClient.get(`/payments/cryptapi/status/${p.orderId}`)
+            const d = st?.data?.data || {}
+            setPaymentData(prev => prev ? ({ ...prev, qrcode_url: d.qrcode_url, qr_code: d.qr_code, payment_uri: d.payment_uri, address_in: d.address_in || prev.address_in, coin: d.coin || prev.coin }) as any : prev)
+            setSelectedPaymentDetail((prev: any) => prev ? ({
+              ...prev,
+              status: d.status || prev.status,
+              metadata: {
+                ...(prev.metadata || {}),
+                qrcode_url: d.qrcode_url,
+                cryptapi_qr_code: d.qr_code,
+                payment_uri: d.payment_uri,
+                cryptapi_address_in: d.address_in,
+                cryptapi_coin: d.coin
+              }
+            }) : prev)
+          } catch {}
+        }
+      } catch {}
+    }).catch(() => {})
   }, [])
 
   // Check if user has pending payment
@@ -195,6 +234,7 @@ export default function CryptoPaymentPage() {
   const [orderStatus, setOrderStatus] = useState<string>('pending')
   const [copied, setCopied] = useState(false)
   const [timeLeft, setTimeLeft] = useState<number>(0)
+  const [bannerOpen, setBannerOpen] = useState<boolean>(false)
 
   // Countdown timer
   useEffect(() => {
@@ -211,37 +251,99 @@ export default function CryptoPaymentPage() {
       const now = new Date().getTime();
       const secondsLeft = Math.max(0, Math.floor((expiryTime - now) / 1000));
       setTimeLeft(secondsLeft);
+      // Không dùng banner; chỉ mở dialog
+      // Auto open detail dialog to show QR + cancel button
+      setSelectedPaymentDetail({
+        amount: paymentData.amount,
+        status: orderStatus,
+        orderId: paymentData.orderId,
+        metadata: {
+          cryptapi_qr_code: (paymentData as any).qr_code,
+          qrcode_url: (paymentData as any).qrcode_url,
+          payment_uri: (paymentData as any).payment_uri,
+          cryptapi_address_in: paymentData.address_in,
+          cryptapi_coin: paymentData.coin
+        },
+        createdAt: new Date().toISOString(),
+        expiresAt: paymentData.expiresAt
+      })
+      // Không tự mở dialog chi tiết nữa; người dùng thao tác trực tiếp trên trang
     }
   }, [paymentData]);
 
-  // Check order status periodically
+  // Hydrate missing fields on reload (ensure QR/address/coin are filled)
   useEffect(() => {
-    if (paymentData && orderStatus === 'pending') {
-      const interval = setInterval(async () => {
-        try {
-          const response = await apiClient.get(`/payments/cryptapi/status/${paymentData.orderId}`);
-          if (response.data.success) {
-            const status = response.data.data.status;
-            setOrderStatus(status);
-
-            if (status === 'approved') {
-              toast({
-                title: t('cryptoPayment.toasts.successTitle'),
-                description: t('cryptoPayment.toasts.successDesc'),
-                variant: "default",
-              });
-              // Refresh user data
-              window.location.reload();
-            }
-          }
-        } catch (error) {
-          // Failed to check order status
+    (async () => {
+      try {
+        if (paymentData && paymentData.orderId && (!paymentData.qrcode_url && !paymentData.qr_code) ) {
+          const st = await apiClient.get(`/payments/cryptapi/status/${paymentData.orderId}`)
+          const d = st?.data?.data || {}
+          setPaymentData(prev => prev ? ({
+            ...prev,
+            qrcode_url: d.qrcode_url || prev.qrcode_url,
+            qr_code: d.qr_code || prev.qr_code,
+            payment_uri: d.payment_uri || (prev as any).payment_uri,
+            address_in: d.address_in || prev.address_in,
+            coin: d.coin || prev.coin,
+            // carry minimum if backend provides
+            minimum_transaction_coin: (d.minimum_transaction_coin ?? prev.minimum_transaction_coin)
+          } as any) : prev)
         }
-      }, 10000); // Check every 10 seconds
+      } catch {}
+    })()
+  }, [paymentData?.orderId])
 
-      return () => clearInterval(interval);
+  // Removed polling; rely solely on Socket.IO realtime events
+
+  // Socket realtime: generic status updates
+  useEffect(() => {
+    const off = socketOn('payment:update', (msg: any) => {
+      if (!msg || !paymentData) return
+      if (msg.orderId && msg.orderId !== paymentData.orderId) return
+      const st = String(msg.status || '').toLowerCase()
+      if (st === 'approved') {
+        setOrderStatus('approved')
+        setBannerOpen(false)
+      } else if (st === 'processing') {
+        setOrderStatus('processing')
+        // Cập nhật QR nếu backend gửi kèm
+        setSelectedPaymentDetail((prev: any) => prev ? ({
+          ...prev,
+          metadata: { ...(prev.metadata||{}), cryptapi_qr_code: msg?.qr_code || prev?.metadata?.cryptapi_qr_code, qrcode_url: msg?.qrcode_url || prev?.metadata?.qrcode_url, payment_uri: msg?.payment_uri || prev?.metadata?.payment_uri }
+        }) : prev)
+      } else if (st === 'failed') {
+        if (timeLeft === 0) {
+          setOrderStatus('failed')
+          setBannerOpen(false)
+        }
+      }
+    })
+    return () => { if (typeof off === 'function') off() }
+  }, [paymentData, timeLeft])
+
+  // Socket realtime: payment completed -> auto credit and UI update
+  useEffect(() => {
+    const off = socketOn('payment:completed', (msg: any) => {
+      try {
+        if (!paymentData) return
+        setOrderStatus('approved')
+        // Close banner
+        setBannerOpen(false)
+      } catch {}
+    })
+    return () => { if (typeof off === 'function') off() }
+  }, [paymentData])
+
+  // Timeout → mark failed (only when truly past expiresAt)
+  useEffect(() => {
+    if (!paymentData) return
+    const expiryTime = new Date(paymentData.expiresAt).getTime();
+    const now = Date.now();
+    if (now >= expiryTime && (orderStatus === 'pending' || orderStatus === 'processing')) {
+      setOrderStatus('failed')
+      setBannerOpen(false)
     }
-  }, [paymentData, orderStatus, toast]);
+  }, [timeLeft, paymentData, orderStatus])
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -317,11 +419,8 @@ export default function CryptoPaymentPage() {
       if (response.data.success) {
         setPaymentData(response.data.data);
         setOrderStatus('pending');
-        toast({
-          title: t('cryptoPayment.toasts.createdTitle'),
-          description: t('cryptoPayment.toasts.createdDesc'),
-          variant: "default",
-        });
+        // No toast; dialog + banner will handle UX
+        setBannerOpen(true)
       } else {
         toast({
           title: t('cryptoPayment.toasts.errorTitle'),
@@ -331,11 +430,7 @@ export default function CryptoPaymentPage() {
       }
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Lỗi tạo thanh toán';
-      toast({
-        title: t('cryptoPayment.toasts.errorTitle'),
-        description: errorMessage,
-        variant: "destructive",
-      });
+      // Keep error silently or surface in UI if needed
     } finally {
       setIsLoading(false);
     }
@@ -364,7 +459,21 @@ export default function CryptoPaymentPage() {
     setPaymentData(null);
     setOrderStatus('pending');
     setTimeLeft(0);
+    setBannerOpen(false)
   };
+
+  const cancelCurrentPayment = async () => {
+    try {
+      // Try find by current orderId first
+      const currentOrder = paymentData?.orderId
+      const res = await apiClient.get('/payments/requests?status=pending&limit=10')
+      const list = res?.data?.data?.requests || []
+      const req = list.find((r: any) => r?.orderId === currentOrder) || list[0]
+      const rid = (req && (req.id || req._id))
+      if (rid) await apiClient.delete(`/payments/requests/${rid}`)
+    } catch {}
+    resetPayment()
+  }
 
   if (paymentData) {
     const selectedCrypto = cryptoOptions.find(c => c.value === selectedCoin);
@@ -372,6 +481,7 @@ export default function CryptoPaymentPage() {
 
     return (
       <div className="container mx-auto p-4 sm:p-6 max-w-4xl">
+        {/* Banner đã bỏ theo yêu cầu */}
         <div className="mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t('cryptoPayment.payTitle')}</h1>
           <p className="text-sm sm:text-base text-muted-foreground">
@@ -479,10 +589,21 @@ export default function CryptoPaymentPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center space-y-4">
+              {(orderStatus === 'pending' || orderStatus === 'processing') && (
+                <Button variant="destructive" size="sm" className="self-stretch" onClick={cancelCurrentPayment}>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Cancel Payment
+                </Button>
+              )}
               {(() => {
                 const qrBase64 = paymentData.qr_code_base64 || paymentData.qr_code;
-                const qrUrl = paymentData.qrcode_url;
-                
+                let qrUrl = paymentData.qrcode_url;
+                // Fallback từ payment_uri nếu không có ảnh QR
+                if (!qrBase64 && !qrUrl && (paymentData as any)?.payment_uri) {
+                  const enc = encodeURIComponent((paymentData as any).payment_uri)
+                  qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${enc}`
+                }
+
                 if (qrBase64) {
                   return (
                     <div className="p-2 sm:p-4 bg-white rounded-lg w-full flex justify-center">
@@ -529,6 +650,12 @@ export default function CryptoPaymentPage() {
                 <p className="text-xs text-muted-foreground break-all">
                   {t('cryptoPayment.orderId')} {paymentData.orderId}
                 </p>
+                {paymentData.address_in && (
+                  <p className="text-xs text-muted-foreground break-all">Address: {paymentData.address_in}</p>
+                )}
+                {typeof paymentData.minimum_transaction_coin === 'number' && paymentData.coin && (
+                  <p className="text-xs text-muted-foreground">Minimum: {paymentData.minimum_transaction_coin} {paymentData.coin.toUpperCase()}</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -944,6 +1071,9 @@ export default function CryptoPaymentPage() {
               <DollarSign className="h-5 w-5" />
               Payment Details
             </DialogTitle>
+            <DialogDescription>
+              Review details of your selected crypto payment. If the payment remains pending until it expires, it will be marked as failed automatically.
+            </DialogDescription>
           </DialogHeader>
 
           {selectedPaymentDetail && (
@@ -1018,8 +1148,8 @@ export default function CryptoPaymentPage() {
                 </CardContent>
               </Card>
 
-              {/* QR Code - Show for pending crypto payments */}
-              {selectedPaymentDetail.status === 'pending' && (
+              {/* QR Code - Show for pending/processing crypto payments */}
+              {(selectedPaymentDetail.status === 'pending' || selectedPaymentDetail.status === 'processing') && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
@@ -1030,11 +1160,20 @@ export default function CryptoPaymentPage() {
                   <CardContent className="space-y-4">
                     {/* Try to get QR from different possible fields */}
                     {(() => {
-                      const qrUrl = selectedPaymentDetail.metadata?.cryptapi_qr_code || 
+                      let qrUrl = selectedPaymentDetail.metadata?.cryptapi_qr_code || 
                                    selectedPaymentDetail.metadata?.qrcode_url ||
                                    selectedPaymentDetail.qrcode_url;
+                      if (!qrUrl) {
+                        const uri = selectedPaymentDetail.metadata?.payment_uri || (paymentData as any)?.payment_uri
+                        if (uri) {
+                          const enc = encodeURIComponent(uri)
+                          // External QR image fallback (HTTPS)
+                          qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=192x192&data=${enc}`
+                        }
+                      }
                       const address = selectedPaymentDetail.metadata?.cryptapi_address ||
-                                     selectedPaymentDetail.metadata?.address_in;
+                                     selectedPaymentDetail.metadata?.cryptapi_address_in ||
+                                     selectedPaymentDetail.address_in;
                       
                       return (
                         <>
@@ -1062,7 +1201,6 @@ export default function CryptoPaymentPage() {
                                   size="sm"
                                   onClick={() => {
                                     navigator.clipboard.writeText(address)
-                                    toast({ title: 'Copied!', description: 'Address copied to clipboard' })
                                   }}
                                 >
                                   <Copy className="h-4 w-4" />
@@ -1087,12 +1225,12 @@ export default function CryptoPaymentPage() {
                 </Card>
               )}
 
-              {/* Cancel Button - Only for pending payments */}
-              {selectedPaymentDetail.status === 'pending' && (
+              {/* Cancel Button - For pending/processing payments */}
+              {(selectedPaymentDetail.status === 'pending' || selectedPaymentDetail.status === 'processing') && (
                 <Button
                   variant="destructive"
                   className="w-full"
-                  onClick={() => handleCancelPayment(selectedPaymentDetail.id || selectedPaymentDetail._id)}
+                  onClick={cancelCurrentPayment}
                   disabled={!!cancelingPaymentId}
                 >
                   {cancelingPaymentId === (selectedPaymentDetail.id || selectedPaymentDetail._id) ? (

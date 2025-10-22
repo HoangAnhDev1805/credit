@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { StatCard, CardGrid } from '@/components/shared/Cards'
 import { useToast } from '@/components/shared/Toast'
 import { apiClient } from '@/lib/api'
+import { useSocket } from '@/hooks/use-socket'
 import {
   Users,
   CreditCard,
@@ -56,9 +57,33 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const { error: showError } = useToast()
+  const { on: socketOn } = useSocket({ enabled: true })
+  const [deviceRows, setDeviceRows] = useState<Array<{ device: string; today: number; total: number }>>([])
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     fetchDashboardStats()
+    fetchDeviceStats()
+    // Realtime: card updates -> debounce refresh top tiles
+    const off1 = socketOn('card:updated', () => {
+      try { if (debounceRef.current) clearTimeout(debounceRef.current) } catch {}
+      debounceRef.current = setTimeout(() => { fetchDashboardStats() }, 500)
+    })
+    // Realtime: device stats delta
+    const off2 = socketOn('admin:device-stats:update', (msg: any) => {
+      const dev = String(msg?.device || 'unknown')
+      const inc = Number(msg?.inc || 1)
+      const todayKey = new Date().toISOString().slice(0,10)
+      if (msg?.day && msg.day !== todayKey) return // chỉ xử lý hôm nay
+      setDeviceRows(prev => {
+        const copy = [...prev]
+        const idx = copy.findIndex(r => r.device === dev)
+        if (idx === -1) copy.push({ device: dev, today: inc, total: inc })
+        else copy[idx] = { ...copy[idx], today: (copy[idx].today||0)+inc, total: (copy[idx].total||0)+inc }
+        return copy.sort((a,b)=>a.device.localeCompare(b.device))
+      })
+    })
+    return () => { if (typeof off1==='function') off1(); if (typeof off2==='function') off2(); }
   }, [])
 
   const fetchDashboardStats = async () => {
@@ -71,6 +96,18 @@ export default function AdminDashboard() {
       showError('Lỗi tải dữ liệu', 'Không thể tải thống kê dashboard')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchDeviceStats = async () => {
+    try {
+      const res = await apiClient.get('/admin/device-stats')
+      const list = (res?.data?.data?.devices || []) as Array<{ device: string; total: number; daily: Array<{day:string;count:number}> }>
+      const todayKey = new Date().toISOString().slice(0,10)
+      const rows = list.map(it => ({ device: it.device, total: it.total||0, today: (it.daily||[]).find(d=>d.day===todayKey)?.count || 0 }))
+      setDeviceRows(rows.sort((a,b)=>a.device.localeCompare(b.device)))
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -309,6 +346,35 @@ export default function AdminDashboard() {
               <p className="text-muted-foreground">Chưa có hoạt động nào</p>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Device Stats Realtime */}
+      <div>
+        <h2 className="text-lg font-semibold mb-4">Thiết bị (realtime)</h2>
+        <div className="bg-card rounded-lg border p-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-muted-foreground">
+                <th className="py-2 px-2">Device</th>
+                <th className="py-2 px-2">Hôm nay</th>
+                <th className="py-2 px-2">Tổng</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deviceRows.length === 0 ? (
+                <tr><td className="py-3 px-2 text-muted-foreground" colSpan={3}>Chưa có dữ liệu</td></tr>
+              ) : (
+                deviceRows.map((r) => (
+                  <tr key={r.device} className="border-t">
+                    <td className="py-2 px-2 font-medium">{r.device}</td>
+                    <td className="py-2 px-2">{r.today}</td>
+                    <td className="py-2 px-2">{r.total}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
