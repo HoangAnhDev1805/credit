@@ -121,7 +121,7 @@ export default function CardHistoryPage() {
         setStats({
           total: apiStats.total || dbTotal,
           live: apiStats.live || 0,
-          dead: apiStats.dead || 0,
+          dead: (apiStats.dead || apiStats.die || 0),  // Backend returns 'die', not 'dead'
           unknown: apiStats.unknown || 0,
           pending: apiStats.pending || 0,
           error: apiStats.error || 0,
