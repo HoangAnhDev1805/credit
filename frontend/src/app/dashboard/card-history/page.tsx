@@ -2,6 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { apiClient } from '@/lib/api'
+import { useBinDatabase } from '@/hooks/use-bin-database'
+import { enrichCardWithBin } from '@/lib/binDatabase'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -55,6 +57,7 @@ interface Stats {
 
 export default function CardHistoryPage() {
   const { toast } = useToast()
+  const { loaded: binLoaded } = useBinDatabase()
   const [items, setItems] = useState<HistoryCardItem[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
@@ -159,12 +162,15 @@ export default function CardHistoryPage() {
     try {
       // Format: card|STATUS: xxx|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
       const lines = items.map(it => {
-        const fullCard = it.fullCard || `${it.cardNumber}|${it.expiryMonth}|${it.expiryYear}|${it.cvv}`
-        const status = `STATUS: ${(it.status || 'UNKNOWN').toUpperCase()}`
-        const typeCheck = it.typeCheck ? `TYPE:  ${(it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
-        const level = it.level ? `LEVEL:  ${(it.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
-        const bank = it.bank ? `BANK: ${it.bank}` : 'BANK: UNKNOWN'
-        const country = it.country ? `${it.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+        // Enrich with BIN database
+        const enriched = binLoaded ? enrichCardWithBin(it) : it
+        
+        const fullCard = enriched.fullCard || `${enriched.cardNumber}|${enriched.expiryMonth}|${enriched.expiryYear}|${enriched.cvv}`
+        const status = `STATUS: ${(enriched.status || 'UNKNOWN').toUpperCase()}`
+        const typeCheck = enriched.typeCheck ? `TYPE:  ${(enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
+        const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
+        const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: UNKNOWN'
+        const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
         
         return `${fullCard}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
       })
@@ -188,23 +194,26 @@ export default function CardHistoryPage() {
     try {
       const header = 'Full Card,Status,Type,Level,Bank,Country,Card Number,Expiry Month,Expiry Year,CVV,Brand,BIN,Error Message,Checked At,Created At'
       const rows = items.map(it => {
-        const typeCheck = it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
+        // Enrich with BIN database
+        const enriched = binLoaded ? enrichCardWithBin(it) : it
+        
+        const typeCheck = enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
         return [
-          it.fullCard || '',
-          it.status || '',
+          enriched.fullCard || '',
+          enriched.status || '',
           typeCheck,
-          (it.level || '').toUpperCase(),
-          it.bank || '',
-          it.country || '',
-          it.cardNumber || '',
-          it.expiryMonth || '',
-          it.expiryYear || '',
-          it.cvv || '',
-          (it.brand || '').toUpperCase(),
-          it.bin || '',
-          (it.errorMessage || '').replace(/,/g, ';'),
-          it.checkedAt ? new Date(it.checkedAt).toISOString() : '',
-          new Date(it.createdAt).toISOString()
+          (enriched.level || '').toUpperCase(),
+          enriched.bank || '',
+          enriched.country || '',
+          enriched.cardNumber || '',
+          enriched.expiryMonth || '',
+          enriched.expiryYear || '',
+          enriched.cvv || '',
+          (enriched.brand || '').toUpperCase(),
+          enriched.bin || '',
+          (enriched.errorMessage || '').replace(/,/g, ';'),
+          enriched.checkedAt ? new Date(enriched.checkedAt).toISOString() : '',
+          new Date(enriched.createdAt).toISOString()
         ].join(',')
       })
       

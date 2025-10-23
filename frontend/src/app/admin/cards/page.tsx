@@ -6,11 +6,14 @@ import { SharedModal } from '@/components/shared/Modal'
 import { SharedPagination, usePagination } from '@/components/shared/Pagination'
 import { useToast } from '@/components/shared/Toast'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiClient } from '@/lib/api'
 import { useSocket } from '@/hooks/use-socket'
+import { useBinDatabase } from '@/hooks/use-bin-database'
+import { enrichCardWithBin } from '@/lib/binDatabase'
 import { Search, Filter, Download, Copy, CreditCard, Eye, CheckCircle2, XCircle, HelpCircle, Workflow, Trash2, ClipboardCopy } from 'lucide-react'
 
 interface Card {
@@ -46,6 +49,7 @@ interface Card {
 }
 
 export default function CardManagement() {
+  const { loaded: binLoaded } = useBinDatabase()
   const [cards, setCards] = useState<Card[]>([])
   const [loading, setLoading] = useState(true)
   const [totalCards, setTotalCards] = useState(0)
@@ -395,14 +399,17 @@ export default function CardManagement() {
     const filteredCards = selectedList.length > 0 ? selectedList : filterCards()
     // Format: card|STATUS: xxx|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
     const txt = filteredCards.map(card => {
-      const status = `STATUS: ${(card.status || 'unknown').toUpperCase()}`
-      const typeCheckNum = Number(card.typeCheck)
-      const typeCheck = typeCheckNum ? `TYPE:  ${(typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
-      const level = card.level ? `LEVEL:  ${(card.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
-      const bank = card.bank ? `BANK: ${card.bank}` : 'BANK: UNKNOWN'
-      const country = card.country ? `${card.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+      // Enrich with BIN database
+      const enriched = binLoaded ? enrichCardWithBin(card) : card
       
-      return `${card.fullCard}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
+      const status = `STATUS: ${(enriched.status || 'unknown').toUpperCase()}`
+      const typeCheckNum = Number(enriched.typeCheck)
+      const typeCheck = typeCheckNum ? `TYPE:  ${(typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
+      const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
+      const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: UNKNOWN'
+      const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+      
+      return `${enriched.fullCard}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
 
     const blob = new Blob([txt], { type: 'text/plain' })
@@ -420,23 +427,26 @@ export default function CardManagement() {
     const filteredCards = selectedList.length > 0 ? selectedList : filterCards()
     const header = 'Full Card,Status,Type,Level,Bank,Country,Card Number,Expiry Month,Expiry Year,CVV,Brand,BIN,Message'
     const rows = filteredCards.map(card => {
-      const typeCheckNum = Number(card.typeCheck)
+      // Enrich with BIN database
+      const enriched = binLoaded ? enrichCardWithBin(card) : card
+      
+      const typeCheckNum = Number(enriched.typeCheck)
       const typeCheck = typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN'
       const q = (s?: string | number | null) => `"${String(s ?? '').replace(/"/g,'\"')}`
       return [
-        q(card.fullCard),
-        q(card.status),
+        q(enriched.fullCard),
+        q(enriched.status),
         q(typeCheck),
-        q((card.level || '').toUpperCase()),
-        q(card.bank),
-        q(card.country),
-        q(card.cardNumber),
-        q(card.expiryMonth),
-        q(card.expiryYear),
-        q(card.cvv),
-        q((card.brand || '').toUpperCase()),
-        q(card.bin),
-        q((card.errorMessage || '').replace(/,/g, ';'))
+        q((enriched.level || '').toUpperCase()),
+        q(enriched.bank),
+        q(enriched.country),
+        q(enriched.cardNumber),
+        q(enriched.expiryMonth),
+        q(enriched.expiryYear),
+        q(enriched.cvv),
+        q((enriched.brand || '').toUpperCase()),
+        q(enriched.bin),
+        q((enriched.errorMessage || '').replace(/,/g, ';'))
       ].join(',')
     })
     

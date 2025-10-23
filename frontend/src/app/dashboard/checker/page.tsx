@@ -4,6 +4,10 @@ import "@/styles/checker.css"
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { apiClient, type Card } from "@/lib/api"
 import { useSocket } from "@/hooks/use-socket"
+import { useBinDatabase } from "@/hooks/use-bin-database"
+import { enrichCardWithBin } from "@/lib/binDatabase"
+import { useI18n } from "@/hooks/use-i18n"
+import { useAuthStore } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Card as UICard, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -33,8 +37,6 @@ import {
   Loader2
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useI18n } from "@/components/I18nProvider"
-import { useAuthStore } from "@/lib/auth"
 
 // Normalize backend/WS statuses to UI statuses
 const normalizeStatus = (s: string): CheckResult['status'] => {
@@ -75,6 +77,9 @@ export default function CheckerPage() {
   const { toast } = useToast()
   const { t } = useI18n()
   const { user } = useAuthStore()
+  
+  // Load BIN database
+  const { loaded: binLoaded } = useBinDatabase()
   
   // Setup Socket.IO connection
   const { on: socketOn, emit: socketEmit, isConnected } = useSocket()
@@ -581,6 +586,10 @@ export default function CheckerPage() {
         const apiStatus = String(msg.status || '').toLowerCase()
         if (!apiStatus || apiStatus === 'pending' || apiStatus === 'checking') return
         const status = apiStatus === 'live' ? 'Live' : apiStatus === 'die' ? 'Die' : apiStatus === 'error' ? 'Error' : 'Unknown'
+        
+        // Enrich with BIN database if fields are missing/unknown
+        const enriched = binLoaded ? enrichCardWithBin(msg) : msg
+        
         const applyUpdate = () => setResults(prev => {
           const list = [...prev]
           const key = String(msg.card).trim()
@@ -589,17 +598,17 @@ export default function CheckerPage() {
             list[idx] = { 
               ...list[idx], 
               status: status as any, 
-              response: msg.response || '',
-              cardNumber: msg.cardNumber,
-              expiryMonth: msg.expiryMonth,
-              expiryYear: msg.expiryYear,
-              cvv: msg.cvv,
-              brand: msg.brand,
-              bin: msg.bin,
-              country: msg.country,
-              bank: msg.bank,
-              level: msg.level,
-              typeCheck: msg.typeCheck
+              response: enriched.response || '',
+              cardNumber: enriched.cardNumber,
+              expiryMonth: enriched.expiryMonth,
+              expiryYear: enriched.expiryYear,
+              cvv: enriched.cvv,
+              brand: enriched.brand,
+              bin: enriched.bin,
+              country: enriched.country,
+              bank: enriched.bank,
+              level: enriched.level,
+              typeCheck: enriched.typeCheck
             }
           }
           return list
@@ -1016,13 +1025,16 @@ export default function CheckerPage() {
     
     // Format: card|STATUS: xxx|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
     const txt = checked.map(r => {
-      const status = `STATUS: ${r.status.toUpperCase()}`
-      const typeCheck = r.typeCheck ? `TYPE:  ${(r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
-      const level = r.level ? `LEVEL:  ${(r.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
-      const bank = r.bank ? `BANK: ${r.bank}` : 'BANK: UNKNOWN'
-      const country = r.country ? `${r.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+      // Enrich with BIN database before export
+      const enriched = binLoaded ? enrichCardWithBin(r) : r
       
-      return `${r.card}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
+      const status = `STATUS: ${enriched.status.toUpperCase()}`
+      const typeCheck = enriched.typeCheck ? `TYPE:  ${(enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
+      const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
+      const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: UNKNOWN'
+      const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+      
+      return `${enriched.card}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
     
     const blob = new Blob([txt], { type: 'text/plain' })
@@ -1041,21 +1053,24 @@ export default function CheckerPage() {
     
     const header = 'Full Card,Status,Type,Level,Bank,Country,Card Number,Expiry Month,Expiry Year,CVV,Brand,BIN,Message'
     const rows = checked.map(r => {
-      const typeCheck = r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
+      // Enrich with BIN database before export
+      const enriched = binLoaded ? enrichCardWithBin(r) : r
+      
+      const typeCheck = enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
       return [
-        r.card || '',
-        r.status || '',
+        enriched.card || '',
+        enriched.status || '',
         typeCheck,
-        (r.level || '').toUpperCase(),
-        r.bank || '',
-        r.country || '',
-        r.cardNumber || '',
-        r.expiryMonth || '',
-        r.expiryYear || '',
-        r.cvv || '',
-        (r.brand || '').toUpperCase(),
-        r.bin || '',
-        (r.response || '').replace(/,/g, ';')
+        (enriched.level || '').toUpperCase(),
+        enriched.bank || '',
+        enriched.country || '',
+        enriched.cardNumber || '',
+        enriched.expiryMonth || '',
+        enriched.expiryYear || '',
+        enriched.cvv || '',
+        (enriched.brand || '').toUpperCase(),
+        enriched.bin || '',
+        (enriched.response || '').replace(/,/g, ';')
       ].join(',')
     })
     
