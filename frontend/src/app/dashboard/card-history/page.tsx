@@ -118,13 +118,13 @@ export default function CardHistoryPage() {
         const apiStats = data.stats
         
         setStats({
-          total: apiStats.total || dbTotal,
-          live: apiStats.live || 0,
-          dead: (apiStats.dead || apiStats.die || 0),
-          unknown: apiStats.unknown || 0,
-          pending: apiStats.pending || 0,
-          error: apiStats.error || 0,
-          successRate: apiStats.successRate || 0
+          total: Number(apiStats.total) || dbTotal,
+          live: Number(apiStats.live) || 0,
+          dead: Number(apiStats.dead || apiStats.die) || 0,
+          unknown: Number(apiStats.unknown) || 0,
+          pending: Number(apiStats.pending) || 0,
+          error: Number(apiStats.error) || 0,
+          successRate: Number(apiStats.successRate) || 0
         })
       } else {
         setStats({

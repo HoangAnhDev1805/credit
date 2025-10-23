@@ -40,17 +40,18 @@ export function useSocket(options: UseSocketOptions = {}) {
 
     try {
       const s = io(endpoint, {
-        // Use polling only to avoid WebSocket issues with reverse proxy
-        transports: ['polling'],
+        // Use WebSocket for realtime connection
+        transports: ['websocket'],
         reconnection: true,
-        reconnectionAttempts: 3,
-        reconnectionDelay: 2000,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 20000,
         withCredentials: true,
         auth: token ? { token, userId: user?.id } : {},
         query: user?.id ? { userId: user.id } : {},
         path: socketPath,
+        upgrade: false,
         autoConnect: true
       })
 

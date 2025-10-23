@@ -211,14 +211,11 @@ export default function CheckerPage() {
       const savedSessionId = localStorage.getItem('checker_session_id')
       const savedIsChecking = localStorage.getItem('checker_is_checking')
       
-      console.log('[Checker] Page reload detected - clearing all data')
-      
       // Stop session if was checking
       if (savedSessionId && savedIsChecking === '1') {
-        console.log('[Checker] Stopping active session:', savedSessionId)
         apiClient.post('/checker/stop', { sessionId: savedSessionId })
-          .then(() => console.log('[Checker] Session stopped'))
-          .catch((err: any) => console.error('[Checker] Failed to stop session:', err))
+          .then(() => {})
+          .catch(() => {})
       }
       
       // ALWAYS clear all state on reload
@@ -247,8 +244,6 @@ export default function CheckerPage() {
         localStorage.removeItem('checker_stats')
         localStorage.removeItem('checker_card_cache')
       } catch {}
-      
-      console.log('[Checker] All data cleared on reload')
     } catch {}
   }, [])
 
@@ -358,7 +353,7 @@ export default function CheckerPage() {
         Msg: response || ''
       })
     } catch (error) {
-      console.error('Report to checkcc error:', error)
+      // Silent fail
     }
   }
 
@@ -435,7 +430,7 @@ export default function CheckerPage() {
         setPricingTiers([{ min: 1, max: null, total: null, pricePerCard: pricePerCard }])
         
       } catch (err) {
-        console.error('Load checker data error:', err)
+        // Silent fail
       } finally {
         setBalanceLoading(false)
       }
@@ -515,7 +510,6 @@ export default function CheckerPage() {
       })
       // Realtime session stopped
       socketOn('checker:session:stopped', (msg: any) => {
-        console.log('[Checker] Session stopped:', msg)
         setIsChecking(false)
         stopRequestedRef.current = true
         setTimeLeft(0)
@@ -737,7 +731,6 @@ export default function CheckerPage() {
         dbCheckedCards = dbCheckRes.data.data || []
       }
     } catch (err) {
-      console.error('Failed to check existing cards (skipping cache):', err)
       // Continue without cache - not a critical error
     }
 
@@ -978,7 +971,6 @@ export default function CheckerPage() {
       setSessionId(null)
       toast({ title: 'Success', description: 'Checking stopped', variant: "default" })
     } catch (err) {
-      console.error('Stop checking error:', err)
       setIsChecking(false)
     }
   }
