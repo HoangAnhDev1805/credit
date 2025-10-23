@@ -22,7 +22,6 @@ export function useBinDatabase() {
         setLoading(true)
         setError(null)
         
-        console.log('[useBinDatabase] Fetching databin.txt...')
         const response = await fetch('/databin.txt')
         
         if (!response.ok) {
@@ -30,16 +29,10 @@ export function useBinDatabase() {
         }
         
         const text = await response.text()
-        console.log('[useBinDatabase] Parsing BIN database...')
-        
         loadBinDatabase(text)
-        
-        const stats = getBinDatabaseStats()
-        console.log('[useBinDatabase] Loaded successfully:', stats)
         
         setLoaded(true)
       } catch (err: any) {
-        console.error('[useBinDatabase] Failed to load:', err)
         setError(err.message || 'Failed to load BIN database')
       } finally {
         setLoading(false)

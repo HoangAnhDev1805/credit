@@ -76,7 +76,6 @@ export default function DynamicHead() {
           thumbnail: toAbs(siteData.site_thumbnail) || TRANSPARENT_PNG
         })
       } catch (error) {
-        console.error('Failed to fetch site config:', error)
         // Fallback to default values (dùng data URI để tránh 404)
         setConfig({
           siteName: 'Credit Card Checker',

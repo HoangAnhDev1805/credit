@@ -80,7 +80,7 @@ export function loadBinDatabase(databinContent: string): void {
     }
   }
   
-  console.log(`[BinDatabase] Loaded ${binDatabase.size} BIN records`)
+  // Loaded successfully
 }
 
 /**
@@ -88,7 +88,6 @@ export function loadBinDatabase(databinContent: string): void {
  */
 export function getBinInfo(cardNumber: string): BinInfo | null {
   if (!binDatabase) {
-    console.warn('[BinDatabase] Database not loaded yet')
     return null
   }
   

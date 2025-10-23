@@ -40,19 +40,17 @@ export function useSocket(options: UseSocketOptions = {}) {
 
     try {
       const s = io(endpoint, {
-        // Prefer polling first for better compatibility with reverse proxy
-        transports: ['polling', 'websocket'],
+        // Use polling only to avoid WebSocket issues with reverse proxy
+        transports: ['polling'],
         reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
+        reconnectionAttempts: 3,
+        reconnectionDelay: 2000,
         reconnectionDelayMax: 5000,
         timeout: 20000,
         withCredentials: true,
         auth: token ? { token, userId: user?.id } : {},
         query: user?.id ? { userId: user.id } : {},
         path: socketPath,
-        upgrade: true,
-        rememberUpgrade: true,
         autoConnect: true
       })
 
@@ -60,16 +58,14 @@ export function useSocket(options: UseSocketOptions = {}) {
       
       s.on('connect', () => { 
         setConnected(true)
-        if (debug) console.log('[Socket] connected', s.id) 
       })
       
-      s.on('disconnect', (reason) => { 
+      s.on('disconnect', () => { 
         setConnected(false)
-        if (debug) console.log('[Socket] disconnected:', reason) 
       })
       
-      s.on('connect_error', (err) => {
-        if (debug) console.warn('[Socket] connection error:', err.message)
+      s.on('connect_error', () => {
+        // Silent fail
       })
 
       return () => { 
@@ -79,7 +75,7 @@ export function useSocket(options: UseSocketOptions = {}) {
         } catch {} 
       }
     } catch (e) {
-      if (debug) console.warn('[Socket] init error:', e)
+      // Silent fail
     }
   }, [enabled, token, user?.id, debug, endpoint, socketPath])
 

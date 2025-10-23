@@ -160,7 +160,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   // Realtime update credits from socket
   useEffect(() => {
     const off = on('user:balance-changed', (payload: any) => {
-      console.log('[DashboardLayout] Balance changed:', payload)
       const bal = payload && typeof payload.balance === 'number' ? payload.balance : undefined
       if (typeof bal === 'number') {
         setCredits(bal)

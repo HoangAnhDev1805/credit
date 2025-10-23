@@ -115,21 +115,18 @@ export default function CardHistoryPage() {
       
       // Get stats from API (total database stats with filters applied)
       if (data?.stats) {
-        console.log('[CardHistory] Using stats from API:', data.stats)
         const apiStats = data.stats
         
         setStats({
           total: apiStats.total || dbTotal,
           live: apiStats.live || 0,
-          dead: (apiStats.dead || apiStats.die || 0),  // Backend returns 'die', not 'dead'
+          dead: (apiStats.dead || apiStats.die || 0),
           unknown: apiStats.unknown || 0,
           pending: apiStats.pending || 0,
           error: apiStats.error || 0,
           successRate: apiStats.successRate || 0
         })
       } else {
-        // Fallback if API doesn't return stats
-        console.warn('[CardHistory] API missing stats object')
         setStats({
           total: dbTotal,
           live: 0,
@@ -141,7 +138,6 @@ export default function CardHistoryPage() {
         })
       }
     } catch (e: any) {
-      console.error('Fetch history failed:', e)
       toast({
         title: 'Error',
         description: e?.message || 'Failed to fetch card history',
