@@ -155,15 +155,16 @@ export default function CardHistoryPage() {
 
   const handleExportTxt = () => {
     try {
-      // Format: card|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
+      // Format: card|STATUS: xxx|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
       const lines = items.map(it => {
         const fullCard = it.fullCard || `${it.cardNumber}|${it.expiryMonth}|${it.expiryYear}|${it.cvv}`
+        const status = `STATUS: ${(it.status || 'UNKNOWN').toUpperCase()}`
         const typeCheck = it.typeCheck ? `TYPE:  ${(it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
         const level = it.level ? `LEVEL:  ${(it.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
         const bank = it.bank ? `BANK: ${it.bank}` : 'BANK: UNKNOWN'
         const country = it.country ? `${it.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
         
-        return `${fullCard}|${typeCheck}| ${level}| ${bank}|${country}`
+        return `${fullCard}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
       })
       const content = lines.join('\n')
       
@@ -183,22 +184,22 @@ export default function CardHistoryPage() {
 
   const handleExportExcel = () => {
     try {
-      const header = ['Card Number', 'Expiry Month', 'Expiry Year', 'CVV', 'Full Card', 'Type', 'Brand', 'BIN', 'Level', 'Bank', 'Country', 'Status', 'Error Message', 'Checked At', 'Created At'].join(',')
+      const header = 'Full Card,Status,Type,Level,Bank,Country,Card Number,Expiry Month,Expiry Year,CVV,Brand,BIN,Error Message,Checked At,Created At'
       const rows = items.map(it => {
         const typeCheck = it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
         return [
+          it.fullCard || '',
+          it.status || '',
+          typeCheck,
+          (it.level || '').toUpperCase(),
+          it.bank || '',
+          it.country || '',
           it.cardNumber || '',
           it.expiryMonth || '',
           it.expiryYear || '',
           it.cvv || '',
-          it.fullCard || '',
-          typeCheck,
           (it.brand || '').toUpperCase(),
           it.bin || '',
-          (it.level || '').toUpperCase(),
-          it.bank || '',
-          it.country || '',
-          it.status || '',
           (it.errorMessage || '').replace(/,/g, ';'),
           it.checkedAt ? new Date(it.checkedAt).toISOString() : '',
           new Date(it.createdAt).toISOString()

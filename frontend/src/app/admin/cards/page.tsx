@@ -393,15 +393,16 @@ export default function CardManagement() {
   // Export TXT format user-friendly (like checker page)
   const handleExportUserTxt = () => {
     const filteredCards = selectedList.length > 0 ? selectedList : filterCards()
-    // Format: card|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
+    // Format: card|STATUS: xxx|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
     const txt = filteredCards.map(card => {
+      const status = `STATUS: ${(card.status || 'unknown').toUpperCase()}`
       const typeCheckNum = Number(card.typeCheck)
       const typeCheck = typeCheckNum ? `TYPE:  ${(typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
       const level = card.level ? `LEVEL:  ${(card.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
       const bank = card.bank ? `BANK: ${card.bank}` : 'BANK: UNKNOWN'
       const country = card.country ? `${card.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
       
-      return `${card.fullCard}|${typeCheck}| ${level}| ${bank}|${country}`
+      return `${card.fullCard}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
 
     const blob = new Blob([txt], { type: 'text/plain' })
@@ -417,24 +418,24 @@ export default function CardManagement() {
   // Export CSV format user-friendly
   const handleExportUserCsv = () => {
     const filteredCards = selectedList.length > 0 ? selectedList : filterCards()
-    const header = 'Card Number,Expiry Month,Expiry Year,CVV,Full Card,Status,Type,Brand,BIN,Level,Bank,Country,Message'
+    const header = 'Full Card,Status,Type,Level,Bank,Country,Card Number,Expiry Month,Expiry Year,CVV,Brand,BIN,Message'
     const rows = filteredCards.map(card => {
       const typeCheckNum = Number(card.typeCheck)
       const typeCheck = typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN'
       const q = (s?: string | number | null) => `"${String(s ?? '').replace(/"/g,'\"')}`
       return [
+        q(card.fullCard),
+        q(card.status),
+        q(typeCheck),
+        q((card.level || '').toUpperCase()),
+        q(card.bank),
+        q(card.country),
         q(card.cardNumber),
         q(card.expiryMonth),
         q(card.expiryYear),
         q(card.cvv),
-        q(card.fullCard),
-        q(card.status),
-        q(typeCheck),
         q((card.brand || '').toUpperCase()),
         q(card.bin),
-        q((card.level || '').toUpperCase()),
-        q(card.bank),
-        q(card.country),
         q((card.errorMessage || '').replace(/,/g, ';'))
       ].join(',')
     })

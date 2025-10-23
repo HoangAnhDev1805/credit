@@ -1065,14 +1065,15 @@ export default function CheckerPage() {
     const checked = results.filter(r => r.status !== 'Checking')
     if (checked.length === 0) return
     
-    // Format: card|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
+    // Format: card|STATUS: xxx|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
     const txt = checked.map(r => {
+      const status = `STATUS: ${r.status.toUpperCase()}`
       const typeCheck = r.typeCheck ? `TYPE:  ${(r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
       const level = r.level ? `LEVEL:  ${(r.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
       const bank = r.bank ? `BANK: ${r.bank}` : 'BANK: UNKNOWN'
       const country = r.country ? `${r.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
       
-      return `${r.card}|${typeCheck}| ${level}| ${bank}|${country}`
+      return `${r.card}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
     
     const blob = new Blob([txt], { type: 'text/plain' })
@@ -1089,22 +1090,22 @@ export default function CheckerPage() {
     const checked = results.filter(r => r.status !== 'Checking')
     if (checked.length === 0) return
     
-    const header = 'Card Number,Expiry Month,Expiry Year,CVV,Full Card,Status,Type,Brand,BIN,Level,Bank,Country,Message'
+    const header = 'Full Card,Status,Type,Level,Bank,Country,Card Number,Expiry Month,Expiry Year,CVV,Brand,BIN,Message'
     const rows = checked.map(r => {
       const typeCheck = r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
       return [
+        r.card || '',
+        r.status || '',
+        typeCheck,
+        (r.level || '').toUpperCase(),
+        r.bank || '',
+        r.country || '',
         r.cardNumber || '',
         r.expiryMonth || '',
         r.expiryYear || '',
         r.cvv || '',
-        r.card || '',
-        r.status || '',
-        typeCheck,
         (r.brand || '').toUpperCase(),
         r.bin || '',
-        (r.level || '').toUpperCase(),
-        r.bank || '',
-        r.country || '',
         (r.response || '').replace(/,/g, ';')
       ].join(',')
     })
