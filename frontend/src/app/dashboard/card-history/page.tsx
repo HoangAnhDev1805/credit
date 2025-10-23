@@ -107,40 +107,42 @@ export default function CardHistoryPage() {
       setItems(filtered)
       setTotal(data?.pagination?.total || filtered.length)
       
-      // Set stats from API (total database with filters)
-      if (data?.stats) {
-        console.log('[CardHistory] Stats from API:', data.stats)
-        setStats({
-          total: data.stats.total || 0,
-          live: data.stats.live || 0,
-          dead: data.stats.dead || 0,
-          unknown: data.stats.unknown || 0,
-          pending: data.stats.pending || 0,
-          error: data.stats.error || 0,
-          successRate: data.stats.successRate || 0
-        })
-      } else {
-        console.warn('[CardHistory] No stats in API response:', data)
-        // Fallback: calculate from current page if no stats from API
-        const pageTotal = filtered.length
-        const pageLive = filtered.filter(c => c.status === 'live').length
-        const pageDead = filtered.filter(c => c.status === 'die' || c.status === 'dead').length
-        const pagePending = filtered.filter(c => c.status === 'pending' || c.status === 'checking').length
-        const pageUnknown = filtered.filter(c => c.status === 'unknown').length
-        const pageError = filtered.filter(c => c.status === 'error').length
-        const checked = pageLive + pageDead
-        const pageSuccessRate = checked > 0 ? Math.round((pageLive / checked) * 100) : 0
-        
-        setStats({
-          total: pageTotal,
-          live: pageLive,
-          dead: pageDead,
-          unknown: pageUnknown,
-          pending: pagePending,
-          error: pageError,
-          successRate: pageSuccessRate
-        })
-      }
+      // Calculate stats from current page items (filtered)
+      console.log('[CardHistory] Calculating stats from filtered items:', filtered.length)
+      const pageTotal = filtered.length
+      const pageLive = filtered.filter(c => (c.status || '').toLowerCase() === 'live').length
+      const pageDead = filtered.filter(c => {
+        const s = (c.status || '').toLowerCase()
+        return s === 'die' || s === 'dead'
+      }).length
+      const pagePending = filtered.filter(c => {
+        const s = (c.status || '').toLowerCase()
+        return s === 'pending' || s === 'checking'
+      }).length
+      const pageUnknown = filtered.filter(c => (c.status || '').toLowerCase() === 'unknown').length
+      const pageError = filtered.filter(c => (c.status || '').toLowerCase() === 'error').length
+      const checked = pageLive + pageDead
+      const pageSuccessRate = checked > 0 ? Math.round((pageLive / checked) * 100) : 0
+      
+      console.log('[CardHistory] Calculated stats:', {
+        total: pageTotal,
+        live: pageLive,
+        dead: pageDead,
+        pending: pagePending,
+        unknown: pageUnknown,
+        error: pageError,
+        successRate: pageSuccessRate
+      })
+      
+      setStats({
+        total: pageTotal,
+        live: pageLive,
+        dead: pageDead,
+        unknown: pageUnknown,
+        pending: pagePending,
+        error: pageError,
+        successRate: pageSuccessRate
+      })
     } catch (e: any) {
       console.error('Fetch history failed:', e)
       toast({

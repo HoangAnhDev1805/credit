@@ -132,7 +132,9 @@ export default function CheckerPage() {
   // Warn user before reload/close when checking
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isChecking) {
+      // Check localStorage instead of state (state may be reset)
+      const savedIsChecking = localStorage.getItem('checker_is_checking')
+      if (savedIsChecking === '1') {
         e.preventDefault()
         e.returnValue = 'Are you sure you want to reload? This will stop checking cards and clear all data.'
         return e.returnValue
@@ -141,7 +143,7 @@ export default function CheckerPage() {
     
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isChecking])
+  }, [])
   
   const filteredResults = useMemo(() => {
     let filtered = results
@@ -198,107 +200,54 @@ export default function CheckerPage() {
     }
   }, [sessionId, socketEmit])
 
-  // Load persisted state on mount OR clear if session was active
+  // ALWAYS clear data on reload (mount)
   useEffect(() => {
     try {
       const savedSessionId = localStorage.getItem('checker_session_id')
       const savedIsChecking = localStorage.getItem('checker_is_checking')
       
-      // ✅ FIX: If reload during active session → Stop API and clear ALL data
+      console.log('[Checker] Page reload detected - clearing all data')
+      
+      // Stop session if was checking
       if (savedSessionId && savedIsChecking === '1') {
-        console.log('[Checker] Detected active session on reload, stopping and clearing all data:', savedSessionId)
-        
-        // Stop the session via API (pause ZennoPoster)
+        console.log('[Checker] Stopping active session:', savedSessionId)
         apiClient.post('/checker/stop', { sessionId: savedSessionId })
-          .then(() => {
-            console.log('[Checker] Session stopped successfully')
-          })
-          .catch((err: any) => {
-            console.error('[Checker] Failed to stop session:', err)
-          })
-        
-        // Clear all state IMMEDIATELY (don't wait for API)
-        setIsChecking(false)
-        setSessionId(null)
-        setResults([])
-        setCardsInput('')
-        setStats({
-          total: 0,
-          live: 0,
-          dead: 0,
-          error: 0,
-          unknown: 0,
-          pending: 0,
-          progress: 0,
-          successRate: 0,
-          liveRate: 0
-        })
-        
-        // Clear localStorage
-        try {
-          localStorage.removeItem('checker_results')
-          localStorage.removeItem('checker_cards_input')
-          localStorage.removeItem('checker_session_id')
-          localStorage.removeItem('checker_is_checking')
-          localStorage.removeItem('checker_stats')
-          localStorage.removeItem('checker_card_cache')
-        } catch {}
-        
-        return // Don't load any data
+          .then(() => console.log('[Checker] Session stopped'))
+          .catch((err: any) => console.error('[Checker] Failed to stop session:', err))
       }
       
-      // No active session → Load persisted results (if any)
-      const savedResults = localStorage.getItem('checker_results')
-      const savedCardsInput = localStorage.getItem('checker_cards_input')
-      const savedCache = localStorage.getItem('checker_card_cache')
-
-      if (savedResults) {
-        const arr = JSON.parse(savedResults)
-        if (Array.isArray(arr)) {
-          const normalized = arr.map((r: any) => ({ ...r, status: normalizeStatus(r?.status) }))
-          setResults(normalized)
-          const unknownCards = normalized.filter((r: any) => r.status === 'Unknown').map((r: any) => r.card)
-          if (unknownCards.length > 0) {
-            const txt = unknownCards.join('\n')
-            setCardsInput(txt)
-            try { localStorage.setItem('checker_cards_input', txt) } catch {}
-          } else if (savedCardsInput) {
-            setCardsInput(savedCardsInput)
-          }
-        }
-      }
-      
-      if (savedCache) {
-        const entries: any[] = JSON.parse(savedCache)
-        if (Array.isArray(entries)) setCardCache(new Map(entries))
-      }
-      
-      // Reset session state
+      // ALWAYS clear all state on reload
       setIsChecking(false)
       setSessionId(null)
-      try { 
-        localStorage.setItem('checker_is_checking', '0')
+      setResults([])
+      setCardsInput('')
+      setStats({
+        total: 0,
+        live: 0,
+        dead: 0,
+        error: 0,
+        unknown: 0,
+        pending: 0,
+        progress: 0,
+        successRate: 0,
+        liveRate: 0
+      })
+      
+      // ALWAYS clear localStorage on reload
+      try {
+        localStorage.removeItem('checker_results')
+        localStorage.removeItem('checker_cards_input')
         localStorage.removeItem('checker_session_id')
+        localStorage.removeItem('checker_is_checking')
+        localStorage.removeItem('checker_stats')
+        localStorage.removeItem('checker_card_cache')
       } catch {}
+      
+      console.log('[Checker] All data cleared on reload')
     } catch {}
   }, [])
 
-  // Secondary load: avoid overriding textarea after first init
-  useEffect(() => {
-    try {
-      const savedResults = localStorage.getItem('checker_results')
-      const savedCardsInput = localStorage.getItem('checker_cards_input')
-      const savedCache = localStorage.getItem('checker_card_cache')
-
-      if (savedResults) setResults(JSON.parse(savedResults))
-      if (savedCardsInput) { /* keep current input (may be Unknown list) */ }
-      // DON'T load stats from localStorage
-      if (savedCache) {
-        const entries: any[] = JSON.parse(savedCache)
-        if (Array.isArray(entries)) setCardCache(new Map(entries))
-      }
-    } catch {}
-  }, [])
+  // Note: Secondary load effect removed - we always clear on reload now
 
   // Persist to localStorage when state changes
   useEffect(() => {
