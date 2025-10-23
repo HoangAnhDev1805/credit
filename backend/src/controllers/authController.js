@@ -67,6 +67,7 @@ const register = async (req, res, next) => {
           username: user.username,
           email: user.email,
           role: user.role,
+          checker: Number(user.checker || 0),
           balance: user.balance,
           createdAt: user.createdAt
         },
@@ -151,6 +152,7 @@ const login = async (req, res, next) => {
           username: user.username,
           email: user.email,
           role: user.role,
+          checker: Number(user.checker || 0),
           balance: user.balance,
           lastLogin: user.lastLogin
         },
@@ -203,6 +205,7 @@ const getMe = async (req, res, next) => {
           username: user.username,
           email: user.email,
           role: user.role,
+          checker: Number(user.checker || 0),
           balance: user.balance,
           avatar: user.avatar,
           bio: user.bio,

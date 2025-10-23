@@ -8,6 +8,35 @@ const Gate = require('../models/Gate');
 const CheckSession = require('../models/CheckSession');
 const Transaction = require('../models/Transaction');
 const logger = require('../config/logger');
+const RedisCache = require('../services/RedisCache');
+
+// Debounce map for session:update events
+const sessionDebounceTimers = new Map();
+const sessionDebouncePayloads = new Map();
+
+function emitSessionUpdateDebounced(io, userRoom, sid, payload, delayMs = 200) {
+  try {
+    const key = String(sid || '');
+    const merged = { ...(sessionDebouncePayloads.get(key) || {}), ...(payload || {}) };
+    sessionDebouncePayloads.set(key, merged);
+    if (sessionDebounceTimers.has(key)) {
+      clearTimeout(sessionDebounceTimers.get(key));
+    }
+    const t = setTimeout(() => {
+      try {
+        const p = sessionDebouncePayloads.get(key) || payload || {};
+        if (io) {
+          if (userRoom) io.to(String(userRoom)).emit('checker:session:update', p);
+          io.to(`session:${key}`).emit('checker:session:update', p);
+        }
+      } finally {
+        sessionDebounceTimers.delete(key);
+        sessionDebouncePayloads.delete(key);
+      }
+    }, delayMs);
+    sessionDebounceTimers.set(key, t);
+  } catch (_) {}
+}
 
 function determineBrandLocal(cardNumber) {
   const firstDigit = cardNumber.charAt(0);
@@ -26,16 +55,32 @@ function determineBrandLocal(cardNumber) {
 function parseCards(input) {
   // input có thể là array các object {cardNumber,expiryMonth,expiryYear,cvv}
   // hoặc là string (textarea) chia dòng "cc|mm|yy|cvv"
+  
+  if (!input) return [];
+  
   const lines = Array.isArray(input)
-    ? input.map(c => `${c.cardNumber}|${c.expiryMonth}|${c.expiryYear}|${c.cvv}`)
+    ? input.map(c => {
+        // Handle object format
+        if (c && typeof c === 'object') {
+          const num = String(c.cardNumber || '').trim();
+          const mm = String(c.expiryMonth || '').trim();
+          const yy = String(c.expiryYear || '').trim();
+          const cvv = String(c.cvv || '').trim();
+          if (!num || !mm || !yy || !cvv) return '';
+          return `${num}|${mm}|${yy}|${cvv}`;
+        }
+        return String(c || '');
+      })
     : String(input || '').split('\n');
+    
   const out = [];
   for (const raw of lines) {
-    const line = String(raw).trim();
+    const line = String(raw || '').trim();
     if (!line) continue;
     const parts = line.split('|');
     if (parts.length < 4) continue;
-    const [num, mm, yy, cvv] = parts;
+    const [num, mm, yy, cvv] = parts.map(p => String(p || '').trim());
+    if (!num || !mm || !yy || !cvv) continue;
     if (!/^\d{13,19}$/.test(num)) continue;
     const mm2 = mm.padStart(2, '0');
     if (!/^(0[1-9]|1[0-2])$/.test(mm2)) continue;
@@ -62,6 +107,9 @@ exports.startOrStop = async (req, res) => {
   try {
     const { cards, stop = false, sessionId, checkType = 1, gate = 'cvv_veo' } = req.body || {};
     const userId = req.user && req.user.id;
+    
+    logger.info('[startOrStop] Request:', { userId, stop, sessionId, checkType, gate, cardsCount: Array.isArray(cards) ? cards.length : 'not-array' });
+    
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
     if (stop) {
@@ -98,8 +146,11 @@ exports.startOrStop = async (req, res) => {
 
     // Bắt đầu session mới
     const parsed = parseCards(cards);
+    logger.info('[startOrStop] Parsed cards:', { parsedCount: parsed.length, inputType: typeof cards });
+    
     if (parsed.length === 0) {
-      return res.status(400).json({ success: false, message: 'Danh sách thẻ không hợp lệ' });
+      logger.warn('[startOrStop] No valid cards parsed');
+      return res.status(400).json({ success: false, message: 'Danh sách thẻ không hợp lệ. Định dạng: CC|MM|YY|CVV' });
     }
 
     const pricePerCard = await getPricePerCardByTypeCheck(checkType);
@@ -122,7 +173,14 @@ exports.startOrStop = async (req, res) => {
     // Lấy timeoutSec từ cấu hình
     let timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
     const session = await CheckSession.create({ sessionId: sid, userId, total: parsed.length, pending: parsed.length, pricePerCard, gate });
-    try { const io = req.app.get('io'); if (io) { io.to(String(userId)).emit('checker:session:start', { sessionId: sid, total: parsed.length, pricePerCard, timeoutSec }); } } catch {}
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        const payload = { sessionId: sid, total: parsed.length, pricePerCard, timeoutSec };
+        io.to(String(userId)).emit('checker:session:start', payload);
+        io.to(`session:${sid}`).emit('checker:session:start', payload);
+      }
+    } catch {}
 
     // Insert cards vào stock user, gắn originUserId + sessionId
     const docs = parsed.map(c => {
@@ -137,15 +195,243 @@ exports.startOrStop = async (req, res) => {
         userId: stockIdStr,
         originUserId: userId,
         sessionId: sid,
-        status: 'checking',
-        typeCheck: gate,
+        status: 'pending',
+        typeCheck: Number(checkType),
         brand,
         bin
       };
     });
 
-    // Handle duplicate cards - use upsert instead of insertMany
-    const bulkOps = docs.map(doc => {
+    // Check Redis cache first for DIE cards
+    const fullCards = Array.from(new Set(docs.map(d => d.fullCard))).filter(Boolean);
+    const cachedResults = new Map();
+    try {
+      for (const fullCard of fullCards) {
+        const cached = await RedisCache.get(fullCard, String(checkType));
+        if (cached && (cached.status === 'die' || cached.status === 'Die')) {
+          cachedResults.set(fullCard, cached);
+        }
+      }
+    } catch (err) {
+      logger.warn('Redis cache check failed (skipping):', err.message);
+    }
+
+    // Find duplicates among existing stock cards (DB)
+    // Chỉ lấy các record đã có kết quả từ ZennoPoster (zennoposter=1)
+    const existingCards = await Card.find({ userId: stockIdStr, $or: [ { fullCard: { $in: fullCards } }, { cardNumber: { $in: docs.map(d=>d.cardNumber) } } ], zennoposter: 1 });
+    const existingByFull = new Map(existingCards.map(ec => [ec.fullCard, ec]));
+    const existingByNumberMap = new Map();
+    for (const ec of existingCards) {
+      if (!existingByNumberMap.has(ec.cardNumber)) existingByNumberMap.set(ec.cardNumber, []);
+      existingByNumberMap.get(ec.cardNumber).push(ec);
+    }
+
+    // Prepare immediate results and updates for existing docs
+    const io = req.app && req.app.get ? req.app.get('io') : null;
+    let immediateDieCount = 0;
+    for (const d of docs) {
+      // Check Redis cache first
+      const cachedDie = cachedResults.get(d.fullCard);
+      let ex = null;
+      
+      if (cachedDie) {
+        // Create a pseudo-existing card from cache to reuse delay logic
+        ex = {
+          _id: null, // Will create new doc
+          fullCard: d.fullCard,
+          cardNumber: d.cardNumber,
+          status: 'die',
+          errorMessage: cachedDie.response || 'Declined (cached)',
+          fromCache: true
+        };
+      } else {
+        // Check DB existing cards
+        ex = existingByFull.get(d.fullCard);
+        if (!ex) {
+          const list = existingByNumberMap.get(d.cardNumber) || [];
+          // Prefer DIE among same cardNumber
+          ex = list.find(it => String(it.status||'').toLowerCase()==='die' || String(it.status||'').toLowerCase()==='dead') || list[0];
+        }
+      }
+      
+      if (!ex) continue;
+      const exStatus = String(ex.status || '').toLowerCase();
+      if (exStatus === 'die' || exStatus === 'dead') {
+        // Assign to session and prevent Zenno from fetching; keep UI as Checking until reveal
+        const minDelay = 30; // seconds
+        const maxDelay = 600; // seconds
+        const delaySec = Math.floor(minDelay + Math.random() * (maxDelay - minDelay + 1));
+        const revealAt = new Date(Date.now() + delaySec * 1000);
+        
+        let cardDoc = ex;
+        if (ex.fromCache) {
+          // Create new card from cache (insert với status checking)
+          const newCard = await Card.create({
+            ...d,
+            sessionId: sid,
+            status: 'checking',
+            zennoposter: 1,
+            checkDeadlineAt: revealAt,
+            lastCheckAt: new Date()
+          });
+          cardDoc = newCard;
+        } else {
+          // Update existing card from DB
+          await Card.updateOne(
+            { _id: ex._id },
+            { $set: { sessionId: sid, status: 'checking', zennoposter: 1, checkDeadlineAt: revealAt, lastCheckAt: new Date() } }
+          );
+        }
+        immediateDieCount++;
+
+        // Schedule delayed reveal, billing, and UI updates to align with per-card timeout
+        const cardId = cardDoc._id || ex._id;
+        setTimeout(async () => {
+          try {
+            await Card.updateOne({ _id: cardId }, { $set: { status: 'die', checkedAt: new Date() } });
+          } catch (_) {}
+
+          try {
+            const pricePerCardToUse = Number(pricePerCard || 0) || 0;
+            // Mark counted once per session
+            let shouldInc = false;
+            try {
+              const r = await Card.updateOne(
+                { _id: cardId, sessionId: sid, sessionCounted: { $ne: true } },
+                { $set: { sessionCounted: true } }
+              );
+              shouldInc = (r && (r.modifiedCount === 1 || r.nModified === 1));
+            } catch {}
+
+            // Mark billed once per session (also set billAmount)
+            let shouldBill = false;
+            try {
+              const r2 = await Card.updateOne(
+                { _id: cardId, sessionId: sid, billedInSession: { $ne: true } },
+                { $set: { billedInSession: true, billAmount: pricePerCardToUse } }
+              );
+              shouldBill = (r2 && (r2.modifiedCount === 1 || r2.nModified === 1));
+            } catch {}
+
+            if (shouldBill && pricePerCardToUse > 0) {
+              // Charge the origin owner of the card (use d.originUserId since cardDoc might not have it)
+              const chargeUserId = String(d.originUserId || userId);
+              await Transaction.createTransaction({
+                userId: chargeUserId,
+                type: 'card_check',
+                amount: -pricePerCardToUse,
+                description: `Charge for cached DIE card ${String(cardId)} in session ${String(sid)}`,
+                relatedId: cardId,
+                relatedModel: 'Card',
+                metadata: { sessionId: sid, cachedResult: true, cardId: cardId, status: 'die', delayed: true, fromRedis: ex.fromCache || false }
+              });
+            }
+
+            let updatedSession = null;
+            if (shouldInc) {
+              try {
+                updatedSession = await CheckSession.findOneAndUpdate(
+                  { sessionId: sid },
+                  { $inc: { processed: 1, die: 1, billedAmount: shouldBill ? pricePerCardToUse : 0 } },
+                  { new: true }
+                ).lean();
+              } catch {}
+            }
+
+            try {
+              if (io) {
+                const u = await User.findById(userId).select('balance');
+                io.to(String(userId)).emit('user:balance-changed', { balance: u ? u.balance : undefined });
+                if (updatedSession) {
+                  const pendingNow = Math.max(0, Number(updatedSession.total || 0) - Number(updatedSession.processed || 0));
+                  const progressNow = Number(updatedSession.total || 0) > 0 ? Math.round((Number(updatedSession.processed || 0) / Number(updatedSession.total || 0)) * 100) : 0;
+                  io.to(String(userId)).emit('checker:session:update', {
+                    sessionId: sid,
+                    total: Number(updatedSession.total || 0),
+                    processed: Number(updatedSession.processed || 0),
+                    pending: pendingNow,
+                    live: Number(updatedSession.live || 0),
+                    die: Number(updatedSession.die || 0),
+                    error: Number(updatedSession.error || 0),
+                    unknown: Number(updatedSession.unknown || 0),
+                    pricePerCard: pricePerCardToUse,
+                    billedAmount: Number(updatedSession.billedAmount || 0),
+                    progress: progressNow
+                  });
+                }
+              }
+            } catch {}
+          } catch (billErr) {
+            logger.error('Delayed DIE billing error:', billErr);
+          }
+
+          // Emit card result to FE after delay; indicate serverDelayed to avoid extra FE delay
+          try {
+            if (io) {
+              io.to(String(userId)).emit('checker:card', {
+                sessionId: sid,
+                cardId: String(ex._id),
+                card: ex.fullCard,
+                status: 'die',
+                response: ex.errorMessage || '',
+                cached: true,
+                serverDelayed: true
+              });
+            }
+          } catch {}
+        }, delaySec * 1000);
+      } else {
+        // Queue existing card without creating a new one; mark as pending for fetch
+        await Card.updateOne({ _id: ex._id }, { $set: { sessionId: sid, status: 'pending', zennoposter: 0, lastCheckAt: new Date() } });
+      }
+    }
+
+    // After immediate DIE handling, update session counters and emit snapshot
+    try {
+      if (immediateDieCount > 0) {
+        const billedAmountInc = immediateDieCount * (Number(pricePerCard || 0) || 0);
+        // Recompute session aggregates best-effort
+        const [totalNow, processedNow] = await Promise.all([
+          Card.countDocuments({ sessionId: sid }),
+          Card.countDocuments({ sessionId: sid, zennoposter: 1 })
+        ]);
+        const dieNow = await Card.countDocuments({ sessionId: sid, status: { $in: ['die','dead'] } });
+        const unknownNow = await Card.countDocuments({ sessionId: sid, status: 'unknown' });
+        const errorNow = await Card.countDocuments({ sessionId: sid, status: 'error' });
+        const pendingNow = Math.max(0, totalNow - processedNow);
+        const progress = totalNow > 0 ? Math.round((processedNow / totalNow) * 100) : 0;
+
+        await CheckSession.updateOne(
+          { sessionId: sid },
+          { $set: { processed: processedNow, pending: pendingNow, die: dieNow, unknown: unknownNow, error: errorNow }, $inc: { billedAmount: billedAmountInc } }
+        );
+        try {
+          if (io) {
+            emitSessionUpdateDebounced(io, String(userId), sid, {
+              sessionId: sid,
+              total: totalNow,
+              processed: processedNow,
+              pending: pendingNow,
+              live: 0,
+              die: dieNow,
+              error: errorNow,
+              unknown: unknownNow,
+              pricePerCard,
+              billedAmount: billedAmountInc,
+              progress
+            });
+          }
+        } catch {}
+      }
+    } catch (e) {
+      logger.warn('Failed to emit session update after immediate DIE handling:', e);
+    }
+
+    // Only create docs for cards that don't exist yet (compare fullCard)
+    const docsToInsert = docs.filter(d => !existingByFull.has(d.fullCard));
+
+    // Handle new cards - use upsert to avoid race condition
+    const bulkOps = docsToInsert.map(doc => {
       // Disjoint updates to avoid conflicts between $setOnInsert and $set
       const insertDoc = {
         cardNumber: doc.cardNumber,
@@ -159,7 +445,7 @@ exports.startOrStop = async (req, res) => {
       };
       return ({
         updateOne: {
-          filter: { cardNumber: doc.cardNumber, userId: doc.userId },
+          filter: { fullCard: doc.fullCard, userId: doc.userId },
           update: {
             // Only set base fields on insert
             $setOnInsert: insertDoc,
@@ -179,18 +465,23 @@ exports.startOrStop = async (req, res) => {
       });
     });
 
-    // Áp hạn chót kiểm tra theo cấu hình (per-card)
-    const deadline = new Date(Date.now() + timeoutSec * 1000);
-    await Card.bulkWrite(bulkOps, { ordered: false });
+    // Insert new cards only (no checkDeadlineAt yet - set only when ZennoPoster fetches)
+    if (bulkOps.length) {
+      await Card.bulkWrite(bulkOps, { ordered: false });
+    }
+    
+    // Set status to 'pending' for non-cached cards (zennoposter != 1)
+    // Do NOT set checkDeadlineAt here - it will be set only when ZennoPoster fetches the card
     await Card.updateMany(
-      { sessionId: sid, userId: stockIdStr },
-      { $set: { checkDeadlineAt: deadline, status: 'checking', lastCheckAt: new Date(), zennoposter: 0 } }
+      { sessionId: sid, userId: stockIdStr, zennoposter: { $ne: 1 } },
+      { $set: { status: 'pending', lastCheckAt: new Date(), zennoposter: 0 }, $unset: { checkDeadlineAt: '' } }
     );
 
-    return res.json({ success: true, message: 'Đã tạo phiên kiểm tra', data: { sessionId: sid, estimatedCost: estimated, pricePerCard, total: parsed.length, timeoutSec } });
+    return res.json({ success: true, message: 'Đã tạo phiên kiểm tra', data: { sessionId: sid, estimatedCost: estimated, pricePerCard, total: parsed.length, timeoutSec, stockUserId: stockIdStr, gateUsed: gate, checkType } });
   } catch (err) {
-    logger.error('startOrStop error:', err);
-    return res.status(500).json({ success: false, message: 'Lỗi hệ thống', error: err.message });
+    logger.error('[startOrStop] Error:', err);
+    logger.error('[startOrStop] Stack:', err.stack);
+    return res.status(500).json({ success: false, message: err.message || 'Server error', error: process.env.NODE_ENV === 'development' ? err.stack : undefined });
   }
 };
 
@@ -219,11 +510,18 @@ exports.getStatus = async (req, res) => {
     
     logger.info(`[GetStatus] Session ${sessionId}: total=${total}, processed=${processed}, pending=${pending}, live=${live}, die=${die}, unknown=${unknown}`);
 
+    // Compute pricePerCard and billedAmount before optional emit
+    const pricePerCard = session.pricePerCard || 0;
+    const billedAmount = await Card.aggregate([
+      { $match: { sessionId, billedInSession: true } },
+      { $group: { _id: null, total: { $sum: { $ifNull: ['$billAmount', 0] } } } }
+    ]).then(r => (r[0]?.total || 0));
+
     // Emit session snapshot via socket if available
     try {
       const io = req.app.get('io');
       if (io) {
-        io.to(String(userId)).emit('checker:session:update', {
+        emitSessionUpdateDebounced(io, String(userId), sessionId, {
           sessionId,
           total,
           processed,
@@ -239,12 +537,6 @@ exports.getStatus = async (req, res) => {
       }
     } catch {}
 
-    const pricePerCard = session.pricePerCard || 0;
-    const billedAmount = await Card.aggregate([
-      { $match: { sessionId, billed: true } },
-      { $group: { _id: null, total: { $sum: '$billAmount' } } }
-    ]).then(r => (r[0]?.total || 0));
-
     // Cập nhật session snapshot
     session.set({ processed, pending, live, die, error, unknown, billedAmount });
     if (pending === 0 && session.status !== 'completed') {
@@ -252,46 +544,7 @@ exports.getStatus = async (req, res) => {
       session.endedAt = new Date();
     }
 
-    // Handle billing when session is completed and not yet billed
-    if (session.status === 'completed' && !session.billedAt) {
-      // Bill only finished cards (live + die) that haven't been billed
-      const cardsToBill = await Card.find({ sessionId, status: { $in: ['live', 'die'] }, billed: { $ne: true } });
-      const finishedCount = cardsToBill.length;
-
-      if (finishedCount > 0) {
-        // Determine pricing tier based on number of successfully checked cards
-        const tier = await PricingConfig.findApplicablePricing(finishedCount, 'user');
-        const pricePerCardToUse = Number(tier?.effectivePrice ?? tier?.pricePerCard ?? session.pricePerCard ?? 0);
-
-        const totalBill = finishedCount * pricePerCardToUse;
-
-        if (totalBill > 0) {
-          await Transaction.createTransaction({
-            userId: session.userId,
-            type: 'card_check',
-            amount: -totalBill,
-            description: `Charge for card check session ${sessionId}`,
-            relatedId: session._id,
-            relatedModel: 'CheckSession',
-            metadata: {
-              sessionId,
-              cardCount: finishedCount,
-              pricePerCard: pricePerCardToUse
-            }
-          });
-
-          // Mark cards as billed with the applied per-card price
-          const cardIdsToUpdate = cardsToBill.map(c => c._id);
-          await Card.updateMany(
-            { _id: { $in: cardIdsToUpdate } },
-            { $set: { billed: true, billAmount: pricePerCardToUse } }
-          );
-
-          session.billedAmount = totalBill;
-          session.billedAt = new Date();
-        }
-      }
-    }
+    // Removed end-of-session bulk billing to prevent double charge; per-card billing happens in postApiController
 
     await session.save();
 

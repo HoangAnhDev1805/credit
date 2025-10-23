@@ -179,8 +179,10 @@ exports.updateCardStatus = async (req, res) => {
     };
 
     // checkedAt khi thẻ kết thúc (live/die/unknown)
-    if (['live','die','unknown'].includes(String(newStatus))) {
+    if (['live','die','unknown','error'].includes(String(newStatus))) {
       update.checkedAt = new Date();
+      // Mark that this card now has a final result from ZennoPoster
+      update.zennoposter = 1;
     }
 
     // Lưu thêm dấu vết nguồn check
@@ -203,7 +205,8 @@ exports.updateCardStatus = async (req, res) => {
       return res.json({ ErrorId: 0, Title: 'error', Message: 'Card not found', Content: '' });
     }
 
-    // Billing moved to checkerController at session completion to avoid per-card double charges
+    // Realtime billing per card when result is definitive (live/die).
+    // Unknown or error are NOT billed.
     try {
       // Update session counters snapshot (best-effort)
       if (card.sessionId) {
@@ -213,6 +216,39 @@ exports.updateCardStatus = async (req, res) => {
           if (newStatus === 'live') inc.live = 1; else if (newStatus === 'die') inc.die = 1; else if (newStatus === 'unknown') inc.unknown = 1;
           inc.processed = 1;
           await CheckSession.updateOne({ _id: session._id }, { $inc: inc });
+
+          // Perform per-card billing if applicable and not already billed
+          if ((newStatus === 'live' || newStatus === 'die') && !card.billed) {
+            // Determine price per card
+            const pricePerCard = Number(session.pricePerCard ?? card.price ?? 0) || 0;
+            if (pricePerCard > 0 && card.originUserId) {
+              await Transaction.createTransaction({
+                userId: card.originUserId,
+                type: 'card_check',
+                amount: -pricePerCard,
+                description: `Charge for card ${String(card._id)} in session ${String(session.sessionId)}`,
+                relatedId: card._id,
+                relatedModel: 'Card',
+                metadata: {
+                  sessionId: session.sessionId,
+                  pricePerCard
+                }
+              });
+
+              await Card.updateOne({ _id: card._id }, { $set: { billed: true, billAmount: pricePerCard } });
+
+              // Emit user balance changed
+              try {
+                const io = req.app && req.app.get ? req.app.get('io') : null;
+                if (io && card.originUserId) {
+                  // Fetch latest balance best-effort
+                  const User = require('../models/User');
+                  const u = await User.findById(card.originUserId).select('balance');
+                  io.to(String(card.originUserId)).emit('user:balance-changed', { balance: u ? u.balance : undefined });
+                }
+              } catch {}
+            }
+          }
         }
       }
     } catch (e) {

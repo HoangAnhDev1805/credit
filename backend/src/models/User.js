@@ -51,6 +51,14 @@ const userSchema = new mongoose.Schema({
     maxlength: 500
   },
 
+  // Permission to use Checker API (0=disabled, 1=enabled)
+  checker: {
+    type: Number,
+    enum: [0, 1],
+    default: 0,
+    index: true
+  },
+
   totalCardsSubmitted: {
     type: Number,
     default: 0,

@@ -41,8 +41,17 @@ export default function GenerateCardsPage() {
     bin: '',
     quantity: 10,
     month: 'random',
-    year: 'random'
+    year: 'random',
+    brand: ''
   })
+
+  // Card brand presets with common BINs
+  const cardBrands = [
+    { name: 'Visa', bin: '457173', icon: '💳' },
+    { name: 'MasterCard', bin: '555555', icon: '💳' },
+    { name: 'Amex', bin: '378282', icon: '💳' },
+    { name: 'Discover', bin: '601111', icon: '💳' }
+  ]
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedCards, setGeneratedCards] = useState<GeneratedCard[]>([])
   const [stats, setStats] = useState({
@@ -102,10 +111,10 @@ export default function GenerateCardsPage() {
       return
     }
 
-    if (formData.quantity < 1 || formData.quantity > 100) {
+    if (formData.quantity < 1 || formData.quantity > 1000) {
       toast({
         title: t('common.error'),
-        description: t('generator.messages.maxQuantity'),
+        description: 'Số lượng phải từ 1 đến 1000 thẻ',
         variant: "destructive"
       })
       return
@@ -187,7 +196,8 @@ export default function GenerateCardsPage() {
         // Generate CVV
         const cvv = Math.floor(Math.random() * 900 + 100).toString()
 
-        const brand = getCardBrand(formData.bin)
+        // Use selected brand or detect from BIN
+        const brand = formData.brand || getCardBrand(formData.bin)
         brands.add(brand)
 
         const card: GeneratedCard = {
@@ -221,10 +231,18 @@ export default function GenerateCardsPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'quantity' ? parseInt(value) || 0 : value
-    }))
+    if (name === 'quantity') {
+      const qty = parseInt(value) || 10
+      setFormData(prev => ({
+        ...prev,
+        quantity: Math.max(1, Math.min(1000, qty))
+      }))
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }))
+    }
   }
 
   const handleSelectChange = (name: string, value: string) => {
@@ -370,6 +388,30 @@ export default function GenerateCardsPage() {
                 </div>
               </div>
 
+              {/* Quick Select Card Brands */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Quick Select Card Type</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {cardBrands.map((brand) => (
+                    <Button
+                      key={brand.name}
+                      type="button"
+                      variant={formData.bin === brand.bin ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setFormData(prev => ({ ...prev, bin: brand.bin, brand: brand.name }))}
+                      disabled={isGenerating}
+                      className="flex flex-col items-center justify-center h-auto py-3"
+                    >
+                      <span className="text-2xl mb-1">{brand.icon}</span>
+                      <span className="text-xs">{brand.name}</span>
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  BIN presets: Visa (457173), MasterCard (555555), Amex (378282), Discover (601111)
+                </p>
+              </div>
+
               {/* Quantity Input */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">{t('generate.quantityLabel')}</label>
@@ -380,7 +422,7 @@ export default function GenerateCardsPage() {
                   value={formData.quantity}
                   onChange={handleChange}
                   min={1}
-                  max={100}
+                  max={1000}
                   disabled={isGenerating}
                 />
               </div>

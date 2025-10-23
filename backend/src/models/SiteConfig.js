@@ -23,7 +23,7 @@ const siteConfigSchema = new mongoose.Schema({
     required: [true, 'Config category is required'],
     trim: true,
     lowercase: true,
-    enum: ['seo', 'general', 'pricing', 'payment', 'email', 'social', 'security', 'api', 'ui', 'features']
+    enum: ['seo', 'general', 'pricing', 'payment', 'email', 'social', 'security', 'api', 'ui', 'features', 'ratelimit']
   },
   label: {
     type: String,

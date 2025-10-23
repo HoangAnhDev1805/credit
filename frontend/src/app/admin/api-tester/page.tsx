@@ -1,942 +1,603 @@
-'use client'
+"use client"
 
-import React, { useState, useEffect, useRef } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useToast } from '@/components/shared/Toast'
-import { apiClient } from '@/lib/api'
-import { Badge } from '@/components/ui/badge'
-import { Send, Copy, Trash2, Info, Loader2 } from 'lucide-react'
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/hooks/use-toast"
+import { apiClient } from "@/lib/api"
+import { useSocket } from "@/hooks/use-socket"
+import { Play, Send, Bug, BookOpen, RefreshCw, Square, Copy, Loader2 } from "lucide-react"
 
-interface TestRequest {
-  id: string
-  timestamp: string
-  type: 'sender' | 'receiver'
-  payload: any
-  response: any
-  status: 'pending' | 'success' | 'error'
-  error?: string
-}
+export default function AdminAPITesterPage() {
+  const { toast } = useToast()
+  const { on: socketOn, emit: socketEmit, isConnected } = useSocket({ enabled: true })
 
-interface Gate {
-  id: string
-  name: string
-  typeCheck: number
-  description?: string
-}
+  // Start Tab State
+  const [startCards, setStartCards] = useState("")
+  const [startGate, setStartGate] = useState("1")
+  const [startSessionId, setStartSessionId] = useState<string | null>(null)
+  const [startStats, setStartStats] = useState({ total: 0, processed: 0, pending: 0, live: 0, die: 0, unknown: 0, billedAmount: 0, pricePerCard: 0 })
+  const [startResults, setStartResults] = useState<any[]>([])
+  const [startLoading, setStartLoading] = useState(false)
 
-export default function ApiTesterPage() {
-  const { success, error: showError } = useToast()
-  const [inspectorTab, setInspectorTab] = useState<'request' | 'response'>('request')
-  const [lastRequest, setLastRequest] = useState<{ url: string; method: string; headers: Record<string,string>; body: any } | null>(null)
-  const [lastResponse, setLastResponse] = useState<{ status?: number; data?: any; error?: any } | null>(null)
-  const [results, setResults] = useState<Array<{ Id: string|number; FullThe: string; TypeCheck?: number; Price?: number; status: 'Pending' | 'Live' | 'Dead' | 'Unknown' | 'Error'; msg?: string }>>([])
-  const [resultsLoading, setResultsLoading] = useState(false)
-  const [activeMode, setActiveMode] = useState<'sender' | 'receiver'>('sender')
-  const [logs, setLogs] = useState<TestRequest[]>([])
-  const [loading, setLoading] = useState(false)
-  const [gates, setGates] = useState<Gate[]>([])
-  const [selectedGate, setSelectedGate] = useState<string>('')
+  // Fetch Tab State
+  const [fetchAmount, setFetchAmount] = useState("5")
+  const [fetchTypeCheck, setFetchTypeCheck] = useState("1")
+  const [fetchToken, setFetchToken] = useState("")
+  const [fetchDevice, setFetchDevice] = useState("Admin-Tester")
+  const [fetchResult, setFetchResult] = useState<any>(null)
+  const [fetchLoading, setFetchLoading] = useState(false)
+  const [autoFetchInterval, setAutoFetchInterval] = useState<NodeJS.Timeout | null>(null)
+
+  // Update Tab State
+  const [updateId, setUpdateId] = useState("")
+  const [updateFullCard, setUpdateFullCard] = useState("")
+  const [updateStatus, setUpdateStatus] = useState("2") // 1=live, 2=die, 3=checking, 4=unknown
+  const [updateMsg, setUpdateMsg] = useState("Approved")
+  const [updateTypeCheck, setUpdateTypeCheck] = useState("1")
+  const [updateResult, setUpdateResult] = useState<any>(null)
+  const [updateLoading, setUpdateLoading] = useState(false)
   
-  // Sender fields (LoaiDV=1)
-  const [senderUrl, setSenderUrl] = useState('')
-  const [cardNumber, setCardNumber] = useState('4532015112830366')
-  const [cardMonth, setCardMonth] = useState('12')
-  const [cardYear, setCardYear] = useState('25')
-  const [cardCvv, setCardCvv] = useState('123')
-  const [amount, setAmount] = useState<number>(5)
-  
-  // Receiver fields (LoaiDV=2 - Manual input forms)
-  const [receiverId, setReceiverId] = useState('')
-  const [receiverStatus, setReceiverStatus] = useState('Live')
-  const [receiverState, setReceiverState] = useState('')
-  const [receiverFrom, setReceiverFrom] = useState('External API')
-  const [receiverMsg, setReceiverMsg] = useState('')
-  // Extra meta fields to mirror /admin/cards
-  const [receiverBIN, setReceiverBIN] = useState('')
-  const [receiverBrand, setReceiverBrand] = useState('')
-  const [receiverCountry, setReceiverCountry] = useState('')
-  const [receiverBank, setReceiverBank] = useState('')
-  const [receiverLevel, setReceiverLevel] = useState('')
-  const [receiverTypeCheck, setReceiverTypeCheck] = useState('')
+  // Batch Update
+  const [updateBatchItems, setUpdateBatchItems] = useState("")
 
-  // Crypto API fields
-  const [cryptoMethod, setCryptoMethod] = useState('GET_BALANCE')
-  const [cryptoAddress, setCryptoAddress] = useState('')
-  const [cryptoAmount, setCryptoAmount] = useState('')
-  const [cryptoResponse, setCryptoResponse] = useState('')
+  // Debug Tab State
+  const [debugLogs, setDebugLogs] = useState<any[]>([])
+  const [socketEventCount, setSocketEventCount] = useState(0)
 
-  // Batch LoaiDV=2: gửi kết quả theo lô từ danh sách pending (top-level)
-  const [batchStatus, setBatchStatus] = useState<'Live' | 'Dead' | 'Unknown' | 'Error'>('Live')
-  const [batchApplyMeta, setBatchApplyMeta] = useState(false)
-  const [batchBIN, setBatchBIN] = useState('')
-  const [batchBrand, setBatchBrand] = useState('')
-  const [batchCountry, setBatchCountry] = useState('')
-  const [batchBank, setBatchBank] = useState('')
-  const [batchLevel, setBatchLevel] = useState('')
-  const [batchTypeCheck, setBatchTypeCheck] = useState('')
-  const handleBatchPost = async () => {
-    const pendings = results.filter(r => r.status === 'Pending')
-    if (pendings.length === 0) {
-      showError('Lỗi', 'Không có thẻ Pending để gửi')
-      return
-    }
-    const statusMap: Record<string, number> = { 'Live': 2, 'Dead': 3, 'Unknown': 4, 'Error': 4 }
-    const content = pendings.map(r => ({
-      Id: r.Id,
-      Status: statusMap[batchStatus] || 4,
-      From: 3,
-      TypeCheck: batchTypeCheck ? parseInt(batchTypeCheck) : (parseInt(selectedGate) || 1),
-      Msg: r.msg || '',
-      ...(batchApplyMeta ? {
-        BIN: batchBIN || undefined,
-        Brand: batchBrand || undefined,
-        Country: batchCountry || undefined,
-        Bank: batchBank || undefined,
-        Level: batchLevel || undefined,
-      } : {})
-    }))
-
-    const reqId = `batch-${Date.now()}`
-    const payload = {
-      Token: localStorage.getItem('token') || '',
-      LoaiDV: 2,
-      Device: 'API-Tester',
-      TypeCheck: parseInt(selectedGate) || 1,
-      Content: content
-    }
-    addLog({ id: reqId, timestamp: new Date().toLocaleTimeString(), type: 'receiver', payload, response: null, status: 'pending' })
-    try {
-      setLoading(true)
-      setLastRequest({ url: senderUrl || '/api/checkcc', method: 'POST', headers: buildHeadersPreview(), body: payload })
-      const response = await apiClient.post('/checkcc', payload)
-      setLastResponse({ status: response.status, data: response.data })
-      setLogs(prev => prev.map(l => l.id === reqId ? { ...l, response: response.data, status: 'success' } : l))
-      success('Thành công', `Đã gửi kết quả cho ${content.length} thẻ`)
-      // Update local state
-      setResults(prev => prev.map(item => (
-        pendings.some(p => String(p.Id) === String(item.Id)) ? { ...item, status: batchStatus } : item
-      )))
-    } catch (error: any) {
-      const msg = error.response?.data?.message || error.message || 'Yêu cầu thất bại'
-      setLogs(prev => prev.map(l => l.id === reqId ? { ...l, status: 'error', error: msg, response: error.response?.data } : l))
-      showError('Lỗi', msg)
-      setLastResponse({ error: msg })
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // Load config on mount
   useEffect(() => {
-    const init = async () => {
-      // Set token for API calls
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : ''
-      if (token) {
-        apiClient.setToken(token)
-      }
+    (async () => {
       try {
-        // Load gates
-        const response = await apiClient.get('/gates')
-        const gatesData = response.data?.data?.gates || []
-        if (Array.isArray(gatesData) && gatesData.length > 0) {
-          setGates(gatesData)
-          setSelectedGate(String(gatesData[0].typeCheck))
+        const res = await apiClient.get("/admin/site-config")
+        const cfg = (res as any)?.data?.data?.siteConfig || {}
+        if (cfg.checkerDefaultBatchSize != null) {
+          setFetchAmount(String(cfg.checkerDefaultBatchSize))
         }
-      } catch (error) {
-        console.error('Failed to load gates:', error)
+      } catch (e) {
+        console.error('Failed to load checker config:', e)
       }
-      try {
-        // Load site-config for default batch/timeout
-        const conf = await apiClient.get('/admin/site-config')
-        const cfg = conf?.data?.data?.siteConfig || {}
-        if (cfg.checkerDefaultBatchSize) setAmount(Number(cfg.checkerDefaultBatchSize))
-      } catch {}
-      try {
-        // Compute senderUrl from apiClient base
-        const base = (apiClient.getBaseUrl() || '').replace(/\/?$/, '')
-        setSenderUrl(`${base}/checkcc`)
-      } catch {}
-    }
-    init()
+    })()
   }, [])
 
-  const buildHeadersPreview = () => {
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : ''
-    const masked = token ? `${token.slice(0,4)}...${token.slice(-4)}` : ''
-    return {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${masked}` } : {}),
-      'User-Agent': 'API-Tester/1.0',
-    }
-  }
+  // Socket listeners for Start tab
+  useEffect(() => {
+    if (!startSessionId) return
 
-  const addLog = (req: TestRequest) => {
-    setLogs(prev => [req, ...prev])
-  }
-
-  const clearLogs = () => {
-    setLogs([])
-    success('Logs cleared')
-  }
-
-  // Auto-populate LoaiDV2 form from card data
-  const handleQuickUpdate = (cardData: any) => {
-    // Extract card ID and info from LoaiDV1 response
-    setReceiverId(String(cardData.Id || ''))
-    setReceiverStatus('Live')
-    setReceiverState('')
-    setReceiverFrom('Test API')
-    setReceiverMsg('')
-    // Switch to receiver tab
-    // Note: You may need to add tab switching logic here
-    success('Auto-filled', 'Card data loaded to LoaiDV2 tab')
-  }
-
-  // LoaiDV=1: Fetch cards from /api/checkcc
-  const handleSendCard = async () => {
-    const reqId = Date.now().toString()
-    const payload = {
-      // apicheckcc.md
-      Token: localStorage.getItem('token') || '',
-      LoaiDV: 1,
-      Device: 'API-Tester',
-      Amount: Number(amount) || 1,
-      TypeCheck: parseInt(selectedGate) || 1,
-      // manual fields to allow backend fallback create card when stock is empty
-      cardNumber: cardNumber.trim(),
-      cardMonth: cardMonth.trim(),
-      cardYear: cardYear.trim(),
-      cardCvv: cardCvv.trim(),
-    }
-
-    addLog({
-      id: reqId,
-      timestamp: new Date().toLocaleTimeString(),
-      type: 'sender',
-      payload,
-      response: null,
-      status: 'pending'
+    const cleanup1 = socketOn('checker:session:start', (data: any) => {
+      addDebugLog('Socket', 'checker:session:start', data)
+      if (data.sessionId === startSessionId) {
+        setStartStats(s => ({ ...s, total: data.total, pricePerCard: data.pricePerCard }))
+      }
     })
 
-    try {
-      setLoading(true)
-      setResultsLoading(true)
-      setResults([])
-      // Preview inspector
-      setLastRequest({ url: senderUrl || '/api/checkcc', method: 'POST', headers: buildHeadersPreview(), body: payload })
-      // Send to /api/checkcc endpoint
-      const response = await apiClient.post('/checkcc', payload)
-      setLastResponse({ status: response.status, data: response.data })
-      const data = response.data
-      
-      setLogs(prev => prev.map(log =>
-        log.id === reqId
-          ? {
-              ...log,
-              response: data,
-              status: data.ErrorId === 0 ? 'success' : 'error',
-              error: data.ErrorId !== 0 ? data.Message || 'Request failed' : undefined
-            }
-          : log
-      ))
+    const cleanup2 = socketOn('checker:session:update', (data: any) => {
+      addDebugLog('Socket', 'checker:session:update', data)
+      setSocketEventCount(c => c + 1)
+      if (data.sessionId === startSessionId) {
+        setStartStats({
+          total: data.total || 0,
+          processed: data.processed || 0,
+          pending: data.pending || 0,
+          live: data.live || 0,
+          die: data.die || 0,
+          unknown: data.unknown || 0,
+          billedAmount: data.billedAmount || 0,
+          pricePerCard: data.pricePerCard || 0
+        })
+      }
+    })
 
-      if (data.ErrorId === 0) {
-        success('Thành công', `Đã nhận ${data.Content?.length || 0} thẻ`)
-        // Build pending results list
-        if (Array.isArray(data.Content)) {
-          const pending = data.Content.map((c: any) => ({
-            Id: c.Id,
-            FullThe: c.FullThe,
-            TypeCheck: c.TypeCheck,
-            Price: c.Price,
-            status: 'Pending' as const,
-          }))
-          setResults(pending)
+    const cleanup3 = socketOn('checker:card', (data: any) => {
+      addDebugLog('Socket', 'checker:card', data)
+      setSocketEventCount(c => c + 1)
+      if (data.sessionId === startSessionId) {
+        setStartResults(prev => {
+          const idx = prev.findIndex(r => r.card === data.card)
+          if (idx >= 0) {
+            const updated = [...prev]
+            updated[idx] = { ...updated[idx], status: data.status, response: data.response }
+            return updated
+          }
+          return [...prev, { card: data.card, status: data.status, response: data.response }]
+        })
+      }
+    })
+
+    return () => {
+      cleanup1()
+      cleanup2()
+      cleanup3()
+    }
+  }, [startSessionId, socketOn])
+
+  const addDebugLog = (type: string, event: string, data: any) => {
+    setDebugLogs(prev => [{
+      timestamp: new Date().toISOString(),
+      type,
+      event,
+      data: JSON.stringify(data, null, 2)
+    }, ...prev.slice(0, 99)]) // Keep last 100 logs
+  }
+
+  // Start Tab Actions
+  const handleStart = async () => {
+    setStartLoading(true)
+    try {
+      const lines = startCards.split('\n').filter(Boolean)
+      const cards = lines.map(l => {
+        const [num, mm, yy, cvv] = l.split('|')
+        return { cardNumber: num, expiryMonth: mm, expiryYear: yy, cvv }
+      })
+
+      const res = await apiClient.post('/checkcc/start', { cards, checkType: parseInt(startGate), gate: startGate })
+      addDebugLog('API', 'POST /checkcc/start', res.data)
+      
+      if (res.data?.success) {
+        const sessionId = res.data.data?.sessionId
+        setStartSessionId(sessionId)
+        if (sessionId && socketEmit) {
+          socketEmit('session:join', sessionId)
         }
-        // Auto-populate first card to LoaiDV2 if available
-        if (Array.isArray(data.Content) && data.Content.length > 0) {
-          handleQuickUpdate(data.Content[0])
-        }
+        setStartResults(cards.map(c => ({ card: `${c.cardNumber}|${c.expiryMonth}|${c.expiryYear}|${c.cvv}`, status: 'pending', response: '' })))
+        toast({ title: "Thành công", description: `Session ${sessionId} đã bắt đầu` })
       } else {
-        // Friendly handling for Out of stock
-        setResults([])
-        const msg = data.Message || 'Không lấy được thẻ'
-        showError('Lỗi', msg)
+        toast({ title: "Lỗi", description: res.data?.message || "Không thể start", variant: "destructive" })
       }
     } catch (error: any) {
-      const errorMsg = error.message || 'Lỗi mạng'
-      setLogs(prev => prev.map(log =>
-        log.id === reqId
-          ? {
-              ...log,
-              status: 'error',
-              error: errorMsg,
-              response: null
-            }
-          : log
-      ))
-      showError('Lỗi', errorMsg)
-      setLastResponse({ error: errorMsg })
+      addDebugLog('Error', 'POST /checkcc/start', error)
+      toast({ title: "Lỗi", description: error.message, variant: "destructive" })
     } finally {
-      setLoading(false)
-      setResultsLoading(false)
+      setStartLoading(false)
     }
   }
 
-  // Crypto API Test
-  const handleTestCryptoAPI = async () => {
-    const reqId = Date.now().toString()
-    const payload: any = {
-      method: cryptoMethod,
-      address: cryptoAddress.trim()
-    }
-    if (cryptoMethod === 'CREATE_PAYMENT' && cryptoAmount) {
-      payload.amount = parseFloat(cryptoAmount)
-    }
-
-    addLog({
-      id: reqId,
-      timestamp: new Date().toLocaleTimeString(),
-      type: 'sender',
-      payload,
-      response: null,
-      status: 'pending'
-    })
-
+  const handleStop = async () => {
+    if (!startSessionId) return
     try {
-      setLoading(true)
-      // Test via backend CryptAPI test endpoint
-      const response = await apiClient.get('/payments/cryptapi/test')
-
-      setLogs(prev => prev.map(log =>
-        log.id === reqId
-          ? {
-              ...log,
-              response: response.data,
-              status: 'success'
-            }
-          : log
-      ))
-
-      success('Thành công', 'Kiểm tra CryptAPI thành công')
-      setCryptoResponse(JSON.stringify(response.data, null, 2))
+      const res = await apiClient.post('/checkcc/stop', { sessionId: startSessionId, stop: true })
+      addDebugLog('API', 'POST /checkcc/stop', res.data)
+      if (socketEmit) {
+        socketEmit('session:leave', startSessionId)
+      }
+      toast({ title: "Đã dừng", description: `Session ${startSessionId}` })
+      setStartSessionId(null)
     } catch (error: any) {
-      const errorMsg = error.response?.data?.message || error.message || 'Yêu cầu thất bại'
-      setLogs(prev => prev.map(log =>
-        log.id === reqId
-          ? {
-              ...log,
-              status: 'error',
-              error: errorMsg,
-              response: error.response?.data
-            }
-          : log
-      ))
-      showError('Lỗi', errorMsg)
-      setCryptoResponse(JSON.stringify(error.response?.data || { error: errorMsg }, null, 2))
-    } finally {
-      setLoading(false)
+      addDebugLog('Error', 'POST /checkcc/stop', error)
+      toast({ title: "Lỗi", description: error.message, variant: "destructive" })
     }
   }
 
-  // LoaiDV=2: Receive result from external sender
-  const handleReceiveResult = async () => {
-    if (!receiverId.trim()) {
-      showError('Lỗi', 'Cần nhập ID')
-      return
+  const handleClearStart = () => {
+    setStartCards("")
+    setStartResults([])
+    setStartStats({ total: 0, processed: 0, pending: 0, live: 0, die: 0, unknown: 0, billedAmount: 0, pricePerCard: 0 })
+    if (startSessionId && socketEmit) {
+      socketEmit('session:leave', startSessionId)
     }
+    setStartSessionId(null)
+  }
 
-    // Map status text to numeric code for API
-    const statusMap: Record<string, number> = {
-      'Live': 2,
-      'Dead': 3,
-      'Unknown': 4,
-      'Error': 4
-    }
-    
-    const reqId = Date.now().toString()
-    const payload = {
-      // apicheckcc.md
-      Token: localStorage.getItem('token') || '',
-      LoaiDV: 2,
-      Device: 'API-Tester',
-      Id: receiverId.trim(),
-      Status: statusMap[receiverStatus] || 4,
-      State: receiverState.trim() || '',
-      From: receiverFrom.trim() || '3',
-      TypeCheck: receiverTypeCheck ? parseInt(receiverTypeCheck) : (parseInt(selectedGate) || 1),
-      Msg: receiverMsg.trim() || '',
-      BIN: receiverBIN.trim() || undefined,
-      Brand: receiverBrand.trim() || undefined,
-      Country: receiverCountry.trim() || undefined,
-      Bank: receiverBank.trim() || undefined,
-      Level: receiverLevel.trim() || undefined
-    }
-
-    addLog({
-      id: reqId,
-      timestamp: new Date().toLocaleTimeString(),
-      type: 'receiver',
-      payload,
-      response: null,
-      status: 'pending'
-    })
-
+  // Fetch Tab Actions
+  const handleFetch = async () => {
+    setFetchLoading(true)
     try {
-      setLoading(true)
-      setLastRequest({ url: senderUrl || '/api/checkcc', method: 'POST', headers: buildHeadersPreview(), body: payload })
-      // Send to /api/checkcc with LoaiDV=2
-      const response = await apiClient.post('/checkcc', payload)
-      setLastResponse({ status: response.status, data: response.data })
-
-      setLogs(prev => prev.map(log =>
-        log.id === reqId
-          ? {
-              ...log,
-              response: response.data,
-              status: 'success'
-            }
-          : log
-      ))
-
-      success('Thành công', 'Đã nhận và lưu kết quả')
-      // Realtime update local results list
-      setResults(prev => prev.map(item => {
-        if (String(item.Id) === String(receiverId.trim())) {
-          const newStatus = receiverStatus as 'Live' | 'Dead' | 'Unknown' | 'Error'
-          return { ...item, status: newStatus, msg: receiverMsg.trim() }
-        }
-        return item
-      }))
-      // Clear form
-      setReceiverId('')
-      setReceiverStatus('Live')
-      setReceiverState('')
-      setReceiverFrom('External API')
-      setReceiverMsg('')
+      const payload = {
+        LoaiDV: 1,
+        Amount: parseInt(fetchAmount),
+        TypeCheck: parseInt(fetchTypeCheck),
+        Device: fetchDevice
+      }
+      
+      const res = await apiClient.post('/checkcc', payload, {
+        headers: fetchToken ? { 'Authorization': `Bearer ${fetchToken}` } : {}
+      })
+      
+      addDebugLog('API', 'POST /checkcc (LoaiDV=1)', res.data)
+      setFetchResult(res.data)
+      
+      if (res.data?.ErrorId === 1 && res.data?.PauseZenno) {
+        toast({ title: "Hết thẻ", description: res.data?.Message || "Card store not found", variant: "default" })
+      } else {
+        toast({ title: "Thành công", description: `Fetched ${res.data?.Content?.length || 0} cards` })
+      }
     } catch (error: any) {
-      const errorMsg = error.response?.data?.message || error.message || 'Request failed'
-      setLogs(prev => prev.map(log =>
-        log.id === reqId
-          ? {
-              ...log,
-              status: 'error',
-              error: errorMsg,
-              response: error.response?.data
-            }
-          : log
-      ))
-      showError('Error', errorMsg)
-      setLastResponse({ error: errorMsg })
+      addDebugLog('Error', 'POST /checkcc (LoaiDV=1)', error)
+      toast({ title: "Lỗi", description: error.message, variant: "destructive" })
     } finally {
-      setLoading(false)
+      setFetchLoading(false)
     }
   }
 
-  // Note: Lint errors for reqId at old line numbers are now resolved after adding reqId definition above
+  const handleAutoFetchStart = () => {
+    if (autoFetchInterval) return
+    const interval = setInterval(() => {
+      handleFetch()
+    }, 5000) // Fetch every 5 seconds
+    setAutoFetchInterval(interval)
+    toast({ title: "Auto-Fetch Started", description: "Fetching every 5 seconds" })
+  }
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    success('Copied', 'Text copied to clipboard')
+  const handleAutoFetchStop = () => {
+    if (autoFetchInterval) {
+      clearInterval(autoFetchInterval)
+      setAutoFetchInterval(null)
+      toast({ title: "Auto-Fetch Stopped" })
+    }
+  }
+
+  // Update Tab Actions
+  const handleUpdateOne = async () => {
+    setUpdateLoading(true)
+    try {
+      const payload = {
+        LoaiDV: 2,
+        Id: updateId,
+        FullThe: updateFullCard,
+        Status: parseInt(updateStatus),
+        Msg: updateMsg,
+        TypeCheck: parseInt(updateTypeCheck)
+      }
+      
+      const res = await apiClient.post('/checkcc', payload)
+      addDebugLog('API', 'POST /checkcc (LoaiDV=2) Single', res.data)
+      setUpdateResult(res.data)
+      toast({ title: "Thành công", description: "Đã gửi update" })
+    } catch (error: any) {
+      addDebugLog('Error', 'POST /checkcc (LoaiDV=2)', error)
+      toast({ title: "Lỗi", description: error.message, variant: "destructive" })
+    } finally {
+      setUpdateLoading(false)
+    }
+  }
+
+  const handleUpdateBatch = async () => {
+    setUpdateLoading(true)
+    try {
+      const lines = updateBatchItems.split('\n').filter(Boolean)
+      const items = lines.map(line => {
+        const [id, status, msg] = line.split('|')
+        return { Id: id, Status: parseInt(status), Msg: msg || 'Batch update', TypeCheck: parseInt(updateTypeCheck) }
+      })
+      
+      const payload = {
+        items
+      }
+      
+      const res = await apiClient.post('/checkcc/update', payload)
+      addDebugLog('API', 'POST /checkcc/update Batch', res.data)
+      setUpdateResult(res.data)
+      toast({ title: "Thành công", description: `Đã gửi ${items.length} updates` })
+    } catch (error: any) {
+      addDebugLog('Error', 'POST /checkcc/update Batch', error)
+      toast({ title: "Lỗi", description: error.message, variant: "destructive" })
+    } finally {
+      setUpdateLoading(false)
+    }
+  }
+
+  const copyCurl = (endpoint: string) => {
+    let curl = ``
+    if (endpoint === 'fetch') {
+      curl = `curl -X POST https://checkcc.live/api/checkcc \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"LoaiDV":1,"Amount":5,"TypeCheck":1,"Device":"ZennoPoster"}'`
+    } else if (endpoint === 'update') {
+      curl = `curl -X POST https://checkcc.live/api/checkcc \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"LoaiDV":2,"Id":"CARD_ID","Status":2,"Msg":"Declined","TypeCheck":1}'`
+    } else if (endpoint === 'evict') {
+      curl = `curl -X POST https://checkcc.live/api/checkcc/evict \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"sessionId":"SESSION_ID"}'`
+    }
+    navigator.clipboard.writeText(curl)
+    toast({ title: "Copied", description: "cURL command copied to clipboard" })
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">API Tester</h1>
-        <p className="text-muted-foreground">Kiểm thử /api/checkcc với LoaiDV 1 (Gửi yêu cầu lấy thẻ) và 2 (POST kết quả)</p>
-      </div>
-
-      <Tabs value={activeMode} onValueChange={(v) => setActiveMode(v as 'sender' | 'receiver')}>
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="sender">
-            📤 LoaiDV 1: Gửi Thẻ
-          </TabsTrigger>
-          <TabsTrigger value="receiver">
-            📥 LoaiDV 2: Nhận Kết Quả
-          </TabsTrigger>
+    <div className="container mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-6">Admin API Tester</h1>
+      
+      <Tabs defaultValue="start" className="w-full">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="start"><Play className="w-4 h-4 mr-2"/>Start (FE Mimic)</TabsTrigger>
+          <TabsTrigger value="fetch"><Send className="w-4 h-4 mr-2"/>Fetch (LoaiDV=1)</TabsTrigger>
+          <TabsTrigger value="update"><Send className="w-4 h-4 mr-2"/>Update (LoaiDV=2)</TabsTrigger>
+          <TabsTrigger value="debug"><Bug className="w-4 h-4 mr-2"/>Debug</TabsTrigger>
+          <TabsTrigger value="guide"><BookOpen className="w-4 h-4 mr-2"/>Hướng dẫn</TabsTrigger>
         </TabsList>
 
-        {/* Sender Tab */}
-        <TabsContent value="sender" className="space-y-4">
+        {/* Start Tab */}
+        <TabsContent value="start">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">📤 Gửi yêu cầu lấy thẻ (LoaiDV=1)</CardTitle>
-              <CardDescription>
-                Gửi dữ liệu thẻ tín dụng đến API bên ngoài
-              </CardDescription>
+              <CardTitle>Kiểm thử Start API (FE Mimic)</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* GATE Selector */}
               <div>
-                <Label htmlFor="gateSelect">Chọn GATE</Label>
-                <select
-                  id="gateSelect"
-                  value={selectedGate}
-                  onChange={(e) => setSelectedGate(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground mt-1"
-                  disabled={gates.length === 0}
-                >
-                  {gates.length === 0 ? (
-                    <option value="">Loading gates...</option>
-                  ) : (
-                    gates.map((gate) => (
-                      <option key={gate.id} value={String(gate.typeCheck)}>
-                        {gate.name} {gate.description ? `- ${gate.description}` : ''}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  TypeCheck value: {selectedGate}
-                </p>
+                <Label>Danh sách thẻ (CC|MM|YY|CVV)</Label>
+                <Textarea 
+                  placeholder="4532015112830366|12|25|123" 
+                  value={startCards} 
+                  onChange={e => setStartCards(e.target.value)} 
+                  rows={5}
+                  disabled={!!startSessionId}
+                />
+              </div>
+              <div>
+                <Label>Gate (TypeCheck)</Label>
+                <Input value={startGate} onChange={e => setStartGate(e.target.value)} disabled={!!startSessionId} />
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleStart} disabled={startLoading || !!startSessionId}>
+                  <Play className="w-4 h-4 mr-2"/>Start
+                </Button>
+                <Button onClick={handleStop} disabled={!startSessionId} variant="destructive">
+                  <Square className="w-4 h-4 mr-2"/>Stop
+                </Button>
+                <Button onClick={handleClearStart} variant="outline">Clear</Button>
               </div>
 
-              {/* Meta mapping fields chỉ dành cho LoaiDV=2 (Receiver tab) */}
-              {/* Amount + Card number */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {startSessionId && (
+                <div className="mt-4 p-4 bg-muted rounded space-y-2">
+                  <p><strong>Session ID:</strong> {startSessionId}</p>
+                  <p><strong>Price/Card:</strong> {startStats.pricePerCard}</p>
+                  <p><strong>Billed:</strong> {startStats.billedAmount}</p>
+                  <div className="grid grid-cols-6 gap-2">
+                    <div><strong>Total:</strong> {startStats.total}</div>
+                    <div><strong>Processed:</strong> {startStats.processed}</div>
+                    <div><strong>Pending:</strong> {startStats.pending}</div>
+                    <div className="text-green-600"><strong>Live:</strong> {startStats.live}</div>
+                    <div className="text-red-600"><strong>Die:</strong> {startStats.die}</div>
+                    <div><strong>Unknown:</strong> {startStats.unknown}</div>
+                  </div>
+                </div>
+              )}
+
+              {startResults.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="font-semibold mb-2">Results ({startResults.length})</h3>
+                  <div className="max-h-96 overflow-y-auto space-y-1">
+                    {startResults.map((r, i) => (
+                      <div key={i} className="flex items-center justify-between p-2 border rounded text-sm">
+                        <span className="font-mono">{r.card}</span>
+                        <Badge variant={r.status === 'live' ? 'default' : r.status === 'die' ? 'destructive' : 'secondary'} className="flex items-center gap-1">
+                          {(r.status === 'pending' || r.status === 'checking') && <Loader2 className="w-3 h-3 animate-spin" />}
+                          {r.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Fetch Tab */}
+        <TabsContent value="fetch">
+          <Card>
+            <CardHeader>
+              <CardTitle>Kiểm thử Fetch API (LoaiDV=1)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="amount">Số lượng (Batch)</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(Math.max(1, Number(e.target.value || 1)))}
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Mặc định theo cấu hình Checker.</p>
+                  <Label>Amount</Label>
+                  <Input type="number" value={fetchAmount} onChange={e => setFetchAmount(e.target.value)} />
                 </div>
                 <div>
-                  <Label htmlFor="cardNumber">Số Thẻ</Label>
-                  <Input
-                    id="cardNumber"
-                    placeholder="4532015112830366"
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value)}
-                    className="mt-1"
-                  />
+                  <Label>TypeCheck</Label>
+                  <Input value={fetchTypeCheck} onChange={e => setFetchTypeCheck(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Token (Optional)</Label>
+                  <Input type="password" value={fetchToken} onChange={e => setFetchToken(e.target.value)} placeholder="Bearer token" />
+                </div>
+                <div>
+                  <Label>Device</Label>
+                  <Input value={fetchDevice} onChange={e => setFetchDevice(e.target.value)} />
                 </div>
               </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <Label htmlFor="cardMonth">Tháng</Label>
-                    <Input
-                      id="cardMonth"
-                      placeholder="12"
-                      value={cardMonth}
-                      onChange={(e) => setCardMonth(e.target.value)}
-                      maxLength={2}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="cardYear">Năm</Label>
-                    <Input
-                      id="cardYear"
-                      placeholder="25"
-                      value={cardYear}
-                      onChange={(e) => setCardYear(e.target.value)}
-                      maxLength={2}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="cardCvv">CVV</Label>
-                    <Input
-                      id="cardCvv"
-                      placeholder="123"
-                      value={cardCvv}
-                      onChange={(e) => setCardCvv(e.target.value)}
-                      maxLength={4}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
+              <div className="flex gap-2">
+                <Button onClick={handleFetch} disabled={fetchLoading}>
+                  <Send className="w-4 h-4 mr-2"/>Fetch Once
+                </Button>
+                <Button onClick={handleAutoFetchStart} disabled={!!autoFetchInterval} variant="outline">
+                  Auto-Fetch Start
+                </Button>
+                <Button onClick={handleAutoFetchStop} disabled={!autoFetchInterval} variant="outline">
+                  Auto-Fetch Stop
+                </Button>
+              </div>
 
-              <Button
-                onClick={handleSendCard}
-                disabled={loading}
-                className="w-full"
-              >
-                {loading ? 'Đang gửi...' : 'Gửi Thẻ'}
+              {fetchResult && (
+                <div className="mt-4 p-4 bg-muted rounded">
+                  <pre className="text-xs overflow-auto max-h-96">{JSON.stringify(fetchResult, null, 2)}</pre>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Update Tab */}
+        <TabsContent value="update">
+          <Card>
+            <CardHeader>
+              <CardTitle>Kiểm thử Update API (LoaiDV=2)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <h3 className="font-semibold">Single Update</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Card ID</Label>
+                  <Input value={updateId} onChange={e => setUpdateId(e.target.value)} placeholder="Card _id từ DB" />
+                </div>
+                <div>
+                  <Label>Full Card (Optional)</Label>
+                  <Input value={updateFullCard} onChange={e => setUpdateFullCard(e.target.value)} placeholder="CC|MM|YY|CVV" />
+                </div>
+                <div>
+                  <Label>Status (1=live, 2=die, 3=checking, 4=unknown)</Label>
+                  <Input value={updateStatus} onChange={e => setUpdateStatus(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Message</Label>
+                  <Input value={updateMsg} onChange={e => setUpdateMsg(e.target.value)} />
+                </div>
+                <div>
+                  <Label>TypeCheck</Label>
+                  <Input value={updateTypeCheck} onChange={e => setUpdateTypeCheck(e.target.value)} />
+                </div>
+              </div>
+              <Button onClick={handleUpdateOne} disabled={updateLoading}>
+                <Send className="w-4 h-4 mr-2"/>Send One
               </Button>
 
-              {/* Request/Response Preview */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label>Dữ Liệu Gửi Đi</Label>
-                  <div className="bg-gray-100 dark:bg-gray-900 p-3 rounded mt-1 text-xs font-mono overflow-auto max-h-32">
-                    {JSON.stringify({
-                      loaiDV: 1,
-                      cardNumber: cardNumber.trim() || 'CARD_NUMBER',
-                      cardMonth: cardMonth.trim() || 'MM',
-                      cardYear: cardYear.trim() || 'YY',
-                      cardCvv: cardCvv.trim() || 'CVV'
-                    }, null, 2)}
-                  </div>
+              <hr className="my-4"/>
+
+              <h3 className="font-semibold">Batch Update</h3>
+              <div>
+                <Label>Batch Items (ID|Status|Msg per line)</Label>
+                <Textarea 
+                  placeholder="card_id_1|2|Declined
+card_id_2|1|Approved" 
+                  value={updateBatchItems} 
+                  onChange={e => setUpdateBatchItems(e.target.value)} 
+                  rows={5}
+                />
+              </div>
+              <Button onClick={handleUpdateBatch} disabled={updateLoading}>
+                <Send className="w-4 h-4 mr-2"/>Send Batch
+              </Button>
+
+              {updateResult && (
+                <div className="mt-4 p-4 bg-muted rounded">
+                  <pre className="text-xs overflow-auto max-h-96">{JSON.stringify(updateResult, null, 2)}</pre>
                 </div>
-                <div>
-                  <Label>Phản Hồi Mong Đợi</Label>
-                  <div className="bg-gray-100 dark:bg-gray-900 p-3 rounded mt-1 text-xs font-mono overflow-auto max-h-32">
-                    {`{
-  "success": true,
-  "message": "Thẻ đã nhận",
-  "data": {
-    "requestId": "uuid",
-    "cardLast4": "0366"
-  }
-}`}
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Debug Tab */}
+        <TabsContent value="debug">
+          <Card>
+            <CardHeader>
+              <CardTitle>Debug Console</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4 flex items-center gap-4">
+                <Badge>Socket Events: {socketEventCount}</Badge>
+                <Badge variant="outline">Total Logs: {debugLogs.length}</Badge>
+                <Button size="sm" onClick={() => setDebugLogs([])}>Clear Logs</Button>
+              </div>
+              <div className="max-h-96 overflow-y-auto space-y-2">
+                {debugLogs.map((log, i) => (
+                  <div key={i} className="p-2 border rounded text-xs">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant={log.type === 'Error' ? 'destructive' : 'default'}>{log.type}</Badge>
+                      <span className="text-muted-foreground">{log.timestamp}</span>
+                      <span className="font-semibold">{log.event}</span>
+                    </div>
+                    <pre className="text-xs bg-muted p-2 rounded overflow-auto">{log.data}</pre>
                   </div>
-                </div>
-                <div>
-                  <Label>Gửi theo lô (Pending → {`{Status}`})</Label>
-                  <div className="flex gap-2 mt-1">
-                    <select className="w-40 px-3 py-2 border rounded-md bg-background text-foreground" value={batchStatus} onChange={e=>setBatchStatus(e.target.value as any)}>
-                      <option value="Live">Live</option>
-                      <option value="Dead">Dead</option>
-                      <option value="Unknown">Unknown</option>
-                      <option value="Error">Error</option>
-                    </select>
-                    <Button variant="secondary" onClick={handleBatchPost} disabled={loading || results.filter(r=>r.status==='Pending').length===0}>Gửi kết quả hàng loạt</Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">Sử dụng Content[] gửi nhiều thẻ cùng lúc.</p>
-                </div>
+                ))}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Receiver Tab */}
-        <TabsContent value="receiver" className="space-y-4">
-          {/* Quick pick from Pending */}
+        {/* Guide Tab */}
+        <TabsContent value="guide">
           <Card>
             <CardHeader>
-              <CardTitle>Chọn ID từ Pending</CardTitle>
-              <CardDescription>Chọn nhanh một thẻ đã lấy ở LoaiDV=1 để cập nhật kết quả</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="pendingSelect">Pending IDs</Label>
-                  <select
-                    id="pendingSelect"
-                    className="w-full px-3 py-2 border rounded-md bg-background text-foreground mt-1"
-                    value={receiverId}
-                    onChange={(e) => setReceiverId(e.target.value)}
-                    disabled={results.length === 0}
-                  >
-                    <option value="">-- Chọn ID --</option>
-                    {results.map(r => (
-                      <option key={String(r.Id)} value={String(r.Id)}>
-                        #{String(r.Id)} - {r.FullThe}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label htmlFor="fromSelect">From</Label>
-                  <select
-                    id="fromSelect"
-                    className="w-full px-3 py-2 border rounded-md bg-background text-foreground mt-1"
-                    value={receiverFrom}
-                    onChange={(e) => setReceiverFrom(e.target.value)}
-                  >
-                    <option value="1">Google</option>
-                    <option value="2">WM</option>
-                    <option value="3">Zenno</option>
-                    <option value="4">777</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-1">Theo apicheckcc.md: 1:Google, 2:WM, 3:Zenno, 4:777</p>
-                </div>
-                <div>
-                  <Label>Áp dụng meta hàng loạt</Label>
-                  <div className="mt-1 flex items-center gap-2">
-                    <input id="applyMeta" type="checkbox" checked={batchApplyMeta} onChange={(e)=>setBatchApplyMeta(e.target.checked)} />
-                    <label htmlFor="applyMeta" className="text-sm">Gửi kèm BIN/Brand/Country/Bank/Level cho toàn bộ Content[]</label>
-                  </div>
-                  {batchApplyMeta && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
-                      <Input placeholder="BIN (6 số)" value={batchBIN} onChange={e=>setBatchBIN(e.target.value)} />
-                      <Input placeholder="Brand (visa/mastercard/...)" value={batchBrand} onChange={e=>setBatchBrand(e.target.value)} />
-                      <Input placeholder="Country (US, VN, ...)" value={batchCountry} onChange={e=>setBatchCountry(e.target.value)} />
-                      <Input placeholder="Bank" value={batchBank} onChange={e=>setBatchBank(e.target.value)} />
-                      <Input placeholder="Level (classic/gold/...)" value={batchLevel} onChange={e=>setBatchLevel(e.target.value)} />
-                      <Input placeholder="TypeCheck (1 hoặc 2)" value={batchTypeCheck} onChange={e=>setBatchTypeCheck(e.target.value)} />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                📥 Nhận Kết Quả (LoaiDV=2)
-              </CardTitle>
-              <CardDescription>
-                Nhận kết quả kiểm tra từ người gửi bên ngoài
-              </CardDescription>
+              <CardTitle>Hướng dẫn tích hợp ZennoPoster</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Manual Input Forms */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="receiverId">ID <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="receiverId"
-                    placeholder="card_123456"
-                    value={receiverId}
-                    onChange={(e) => setReceiverId(e.target.value)}
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    ID của thẻ hoặc giao dịch
-                  </p>
-                </div>
-                
-                <div>
-                  <Label htmlFor="receiverStatus">Status <span className="text-red-500">*</span></Label>
-                  <select
-                    id="receiverStatus"
-                    value={receiverStatus}
-                    onChange={(e) => setReceiverStatus(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-md bg-background text-foreground mt-1"
-                  >
-                    <option value="Live">Live</option>
-                    <option value="Dead">Dead</option>
-                    <option value="Unknown">Unknown</option>
-                    <option value="Error">Error</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Trạng thái kiểm tra
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="receiverState">State</Label>
-                  <Input
-                    id="receiverState"
-                    placeholder="Approved, Declined, etc."
-                    value={receiverState}
-                    onChange={(e) => setReceiverState(e.target.value)}
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Trạng thái chi tiết từ gateway
-                  </p>
-                </div>
-                
-                <div>
-                  <Label htmlFor="receiverFrom">From</Label>
-                  <Input
-                    id="receiverFrom"
-                    placeholder="External API"
-                    value={receiverFrom}
-                    onChange={(e) => setReceiverFrom(e.target.value)}
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Nguồn gửi kết quả
-                  </p>
-                </div>
+              <div>
+                <h3 className="font-semibold mb-2">1. Fetch cards (LoaiDV=1)</h3>
+                <Button size="sm" onClick={() => copyCurl('fetch')} className="mb-2">
+                  <Copy className="w-4 h-4 mr-2"/>Copy cURL
+                </Button>
+                <pre className="bg-muted p-2 rounded text-xs overflow-auto">
+{`POST /api/checkcc
+{
+  "LoaiDV": 1,
+  "Amount": 5,
+  "TypeCheck": 1,
+  "Device": "ZennoPoster"
+}`}
+                </pre>
               </div>
 
               <div>
-                <Label htmlFor="receiverMsg">Message</Label>
-                <textarea
-                  id="receiverMsg"
-                  placeholder="Additional information or error message..."
-                  value={receiverMsg}
-                  onChange={(e) => setReceiverMsg(e.target.value)}
-                  className="w-full h-20 p-2 border rounded text-sm mt-1"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Thông tin bổ sung hoặc thông báo lỗi
-                </p>
+                <h3 className="font-semibold mb-2">2. Update status (LoaiDV=2)</h3>
+                <Button size="sm" onClick={() => copyCurl('update')} className="mb-2">
+                  <Copy className="w-4 h-4 mr-2"/>Copy cURL
+                </Button>
+                <pre className="bg-muted p-2 rounded text-xs overflow-auto">
+{`POST /api/checkcc
+{
+  "LoaiDV": 2,
+  "Id": "CARD_ID",
+  "Status": 2,
+  "Msg": "Declined",
+  "TypeCheck": 1
+}`}
+                </pre>
               </div>
 
-              <Button
-                onClick={handleReceiveResult}
-                disabled={loading || !receiverId.trim()}
-                className="w-full"
-              >
-                {loading ? 'Đang xử lý...' : 'Gửi Kết Quả'}
-              </Button>
-
-              {/* Request Preview */}
               <div>
-                <Label>Request Payload</Label>
-                <div className="bg-gray-100 dark:bg-gray-900 p-3 rounded mt-1 text-xs font-mono overflow-auto max-h-40">
-                  {JSON.stringify({
-                    LoaiDV: 2,
-                    TypeCheck: parseInt(selectedGate) || 1,
-                    Id: receiverId.trim() || 'ID',
-                    Status: receiverStatus,
-                    State: receiverState.trim() || '',
-                    From: receiverFrom.trim() || 'External API',
-                    Msg: receiverMsg.trim() || ''
-                  }, null, 2)}
-                </div>
+                <h3 className="font-semibold mb-2">3. Evict/Stop</h3>
+                <Button size="sm" onClick={() => copyCurl('evict')} className="mb-2">
+                  <Copy className="w-4 h-4 mr-2"/>Copy cURL
+                </Button>
+                <pre className="bg-muted p-2 rounded text-xs overflow-auto">
+{`POST /api/checkcc/evict
+{
+  "sessionId": "SESSION_ID"
+}`}
+                </pre>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-2">Status Mapping</h3>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li><strong>1</strong> = Live (Approved)</li>
+                  <li><strong>2</strong> = Die (Declined)</li>
+                  <li><strong>3</strong> = Checking (Processing)</li>
+                  <li><strong>4</strong> = Unknown (Error/Timeout)</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-2">PauseZenno</h3>
+                <p className="text-sm">Khi hết thẻ, server trả:</p>
+                <pre className="bg-muted p-2 rounded text-xs">
+{`{
+  "ErrorId": 1,
+  "Title": "card store not found",
+  "Message": "No cards available",
+  "PauseZenno": true,
+  "Content": []
+}`}
+                </pre>
+                <p className="text-sm mt-2">ZennoPoster nên dừng vòng lặp khi nhận được <code>PauseZenno: true</code></p>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Results & Inspector */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Kết quả (Realtime)</CardTitle>
-            <CardDescription>Danh sách thẻ Pending từ LoaiDV=1 và cập nhật ngay khi POST LoaiDV=2</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {resultsLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/> Đang tải danh sách pending...</div>
-            ) : results.length === 0 ? (
-              <div className="text-sm text-muted-foreground">Chưa có dữ liệu</div>
-            ) : (
-              <div className="space-y-2">
-                {results.map((r) => (
-                  <div key={String(r.Id)} className="flex items-center justify-between border rounded p-2">
-                    <div className="text-sm">
-                      <div className="font-medium">ID #{r.Id}</div>
-                      <div className="text-muted-foreground">{r.FullThe}</div>
-                    </div>
-                    <div className="text-right">
-                      <Badge variant={r.status === 'Pending' ? 'secondary' : r.status === 'Live' ? 'default' : r.status === 'Dead' ? 'destructive' : 'outline'}>
-                        {r.status}
-                      </Badge>
-                      {r.msg && <div className="text-xs text-muted-foreground mt-1">{r.msg}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Request Inspector</CardTitle>
-            <CardDescription>Hiển thị URL, Headers, Parameters, Payload và Response để debug</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm font-medium">URL</div>
-                <div className="text-xs bg-muted p-2 rounded break-all">{lastRequest?.url || (senderUrl || '/api/checkcc')}</div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <div className="text-sm font-medium">Method</div>
-                  <div className="text-xs bg-muted p-2 rounded">{lastRequest?.method || 'POST'}</div>
-                </div>
-                <div>
-                  <div className="text-sm font-medium">Encoding</div>
-                  <div className="text-xs bg-muted p-2 rounded">utf-8</div>
-                </div>
-              </div>
-              <div>
-                <div className="text-sm font-medium">Headers</div>
-                <pre className="text-xs bg-muted p-2 rounded overflow-auto">{JSON.stringify(lastRequest?.headers || buildHeadersPreview(), null, 2)}</pre>
-              </div>
-              <div>
-                <div className="text-sm font-medium">Payload</div>
-                <pre className="text-xs bg-muted p-2 rounded overflow-auto">{JSON.stringify(lastRequest?.body || {}, null, 2)}</pre>
-              </div>
-              <div>
-                <div className="text-sm font-medium">Response</div>
-                <pre className="text-xs bg-muted p-2 rounded overflow-auto">{JSON.stringify(lastResponse?.data || lastResponse?.error || {}, null, 2)}</pre>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Logs */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Lịch Sử Yêu Cầu</CardTitle>
-            <CardDescription>Các yêu cầu API test gần đây</CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearLogs}
-            disabled={logs.length === 0}
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Xóa
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {logs.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">Chưa có lịch sử. Gửi yêu cầu để xem kết quả.</p>
-          ) : (
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {logs.map((log) => (
-                <div key={log.id} className="border rounded-lg p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={log.type === 'sender' ? 'default' : 'secondary'}>
-                        {log.type === 'sender' ? 'GỬI' : 'NHẬN'}
-                      </Badge>
-                      <Badge variant={
-                        log.status === 'success' ? 'default' :
-                        log.status === 'error' ? 'destructive' :
-                        'outline'
-                      }>
-                        {log.status === 'success' ? 'Thành công' : log.status === 'error' ? 'Lỗi' : 'Đang xử lý'}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{log.timestamp}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => copyToClipboard(JSON.stringify(log, null, 2))}
-                    >
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  
-                  {log.payload && (
-                    <div>
-                      <p className="text-xs font-semibold">Request:</p>
-                      <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs font-mono overflow-auto max-h-20">
-                        {JSON.stringify(log.payload, null, 2)}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {log.response && (
-                    <div>
-                      <p className="text-xs font-semibold">Response:</p>
-                      <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs font-mono overflow-auto max-h-20">
-                        {JSON.stringify(log.response, null, 2)}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {log.error && (
-                    <div className="bg-red-50 dark:bg-red-900/20 p-2 rounded text-xs text-red-600 dark:text-red-400">
-                      Error: {log.error}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   )
 }

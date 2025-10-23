@@ -19,39 +19,20 @@ import {
   AlertCircle,
   Book
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 
 export default function ApiDocsPage() {
   const { t } = useI18n()
   const { toast } = useToast()
-  const router = useRouter()
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const { user } = useAuthStore()
   const [token, setToken] = useState<string>('')
 
   useEffect(() => {
-    // Check if user has checker permission
-    if (!user) {
-      router.push('/dashboard')
-      return
-    }
-    
-    // @ts-ignore - checker field exists in User model
-    if (user.checker !== 1) {
-      toast({
-        title: t('common.error'),
-        description: t('apiDocs.accessDenied') || 'You need Checker permission to access API Documentation',
-        variant: 'destructive'
-      })
-      router.push('/dashboard')
-      return
-    }
-    
     try {
       const t = localStorage.getItem('token') || ''
       setToken(t)
     } catch {}
-  }, [user, router, t, toast])
+  }, [])
 
   const copyCode = async (code: string, id: string) => {
     try {
@@ -126,24 +107,12 @@ export default function ApiDocsPage() {
   ]
 
   const codeExamples = {
-    javascript: `// JavaScript/Node.js - Complete Example
-// 1. Login to get token
-const loginResponse = await fetch('https://checkcc.live/api/auth/login', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    login: 'your_username',
-    password: 'your_password'
-  })
-});
-const { data: { token } } = await loginResponse.json();
-
-// 2. Start checking session
-const checkResponse = await fetch('https://checkcc.live/api/checker/start', {
+    javascript: `// JavaScript/Node.js Example - start a checking session
+const response = await fetch('https://checkcc.live/api/checker/start', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': \`Bearer \${token}\`
+    'Authorization': 'Bearer YOUR_JWT_TOKEN'
   },
   body: JSON.stringify({
     cards: [
@@ -152,96 +121,29 @@ const checkResponse = await fetch('https://checkcc.live/api/checker/start', {
     checkType: 1
   })
 });
-const { data: { sessionId } } = await checkResponse.json();
 
-// 3. Poll for results
-const statusResponse = await fetch(\`https://checkcc.live/api/checker/status/\${sessionId}\`, {
-  headers: { 'Authorization': \`Bearer \${token}\` }
-});
-const result = await statusResponse.json();
-console.log(result);`,
+const data = await response.json();
+console.log(data);`,
 
-    python: `# Python - Complete Example
+    python: `# Python Example - poll session status
 import requests
-import time
 
-# 1. Login to get token
-login_response = requests.post('https://checkcc.live/api/auth/login', json={
-    'login': 'your_username',
-    'password': 'your_password'
-})
-token = login_response.json()['data']['token']
+session_id = "YOUR_SESSION_ID"
+url = f"https://checkcc.live/api/checker/status/{session_id}"
+headers = {
+    "Authorization": "Bearer YOUR_JWT_TOKEN"
+}
+response = requests.get(url, headers=headers)
+result = response.json()
+print(result)`,
 
-# 2. Start checking session
-headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-check_response = requests.post('https://checkcc.live/api/checker/start',
-    headers=headers,
-    json={
-        'cards': [{
-            'cardNumber': '4532123456789012',
-            'expiryMonth': '12',
-            'expiryYear': '2025',
-            'cvv': '123'
-        }],
-        'checkType': 1
-    }
-)
-session_id = check_response.json()['data']['sessionId']
-
-# 3. Poll for results
-while True:
-    status_response = requests.get(
-        f'https://checkcc.live/api/checker/status/{session_id}',
-        headers=headers
-    )
-    result = status_response.json()
-    if result['data']['session']['status'] == 'completed':
-        print(result['data']['results'])
-        break
-    time.sleep(3)`,
-
-    php: `<?php
-// PHP - Complete Example
-
-// 1. Login to get token
-$login = [
-    'login' => 'your_username',
-    'password' => 'your_password'
-];
-$ch = curl_init('https://checkcc.live/api/auth/login');
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($login));
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-$response = json_decode(curl_exec($ch), true);
-$token = $response['data']['token'];
-
-// 2. Start checking session
-$cards = [
-    'cards' => [[
-        'cardNumber' => '4532123456789012',
-        'expiryMonth' => '12',
-        'expiryYear' => '2025',
-        'cvv' => '123'
-    ]],
-    'checkType' => 1
-];
-curl_setopt($ch, CURLOPT_URL, 'https://checkcc.live/api/checker/start');
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($cards));
-curl_setopt($ch, CURLOPT_HTTPHEADER, [
-    'Content-Type: application/json',
-    'Authorization: Bearer ' . $token
-]);
-$response = json_decode(curl_exec($ch), true);
-$sessionId = $response['data']['sessionId'];
-
-// 3. Get results
-curl_setopt($ch, CURLOPT_URL, 'https://checkcc.live/api/checker/status/' . $sessionId);
-curl_setopt($ch, CURLOPT_HTTPGET, true);
-$result = json_decode(curl_exec($ch), true);
-print_r($result);
-curl_close($ch);
-?>`
+    curl: `# cURL Example
+curl -X POST https://api.example.com/api/cards/check \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "card": "4532123456789012|12|2025|123"
+  }'`
   }
 
   return (
@@ -251,10 +153,10 @@ curl_close($ch);
       <div>
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <Book className="h-8 w-8 text-primary" />
-          API Documentation
+          {t('apiDocs.title')}
         </h1>
         <p className="text-muted-foreground mt-2">
-          Complete API reference for third-party integration. Build your own applications using our card checking platform.
+          {t('apiDocs.description')}
         </p>
       </div>
 
@@ -296,21 +198,21 @@ curl_close($ch);
         </CardContent>
       </Card>
 
-      {/* Authentication */}
+      {/* CheckCC API Examples */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Key className="h-5 w-5" /> 
-            Authentication
+            <Shield className="h-5 w-5" /> 
+            API CheckCC - Mẫu JSON với Token
           </CardTitle>
           <CardDescription>
-            Get your Bearer token to authenticate all API requests
+            Hai loại dịch vụ chính: LoaiDV=1 (lấy thẻ để check) và LoaiDV=2 (gửi kết quả về)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Current Token */}
           <div className="space-y-2">
-            <div className="text-sm font-medium">Your Current JWT Token:</div>
+            <div className="text-sm font-medium">Your Current Token:</div>
             <div className="bg-muted p-3 rounded-lg font-mono text-xs break-all select-all">
               {token ? token : 'Please login to get your token'}
             </div>
@@ -326,39 +228,72 @@ curl_close($ch);
             </Button>
           </div>
 
-          {/* Login Example */}
+          {/* LoaiDV 1 - Get Cards */}
           <div className="space-y-3">
-            <h4 className="font-semibold text-base sm:text-lg">How to Get Token (Login)</h4>
+            <h4 className="font-semibold text-base sm:text-lg">LoaiDV = 1 (Fetch Cards for Checking)</h4>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Endpoint:</label>
-                <pre className="bg-muted p-2 rounded text-xs mt-1 overflow-x-auto">POST https://checkcc.live/api/auth/login</pre>
+                <label className="text-sm font-medium">URL:</label>
+                <pre className="bg-muted p-2 rounded text-xs mt-1 overflow-x-auto">POST https://checkcc.live/api/checkcc</pre>
               </div>
               <div>
                 <label className="text-sm font-medium">Headers:</label>
-                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">Content-Type: application/json</pre>
+                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto whitespace-pre-wrap break-words">{`Authorization: Bearer ${token ? token.substring(0, 40) + '...' : 'YOUR_JWT_TOKEN'}
+Content-Type: application/json`}</pre>
               </div>
               <div>
-                <label className="text-sm font-medium">Request Body:</label>
+                <label className="text-sm font-medium">Body JSON:</label>
                 <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
-  "login": "your_username_or_email",
-  "password": "your_password"
+  "LoaiDV": 1,
+  "Amount": 50,
+  "TypeCheck": 2,
+  "Device": "zennoposter-bot-01"
 }`}</pre>
               </div>
               <div>
-                <label className="text-sm font-medium">Response:</label>
+                <label className="text-sm font-medium">Sample Response:</label>
                 <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
-  "success": true,
-  "data": {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refreshToken": "refresh_token_string",
-    "user": {
-      "_id": "user_id",
-      "username": "username",
-      "email": "email@example.com",
-      "balance": 1000
+  "ErrorId": 0,
+  "Title": "Success",
+  "Message": "Cards fetched successfully",
+  "Content": [{"Id":"507f...","FullThe":"4532..."}]
+}`}</pre>
+              </div>
+            </div>
+          </div>
+
+          {/* LoaiDV 2 - Send Results */}
+          <div className="space-y-3">
+            <h4 className="font-semibold text-base sm:text-lg">LoaiDV = 2 (Send Check Results)</h4>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">URL:</label>
+                <pre className="bg-muted p-2 rounded text-xs mt-1 overflow-x-auto">POST https://checkcc.live/api/checkcc</pre>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Headers:</label>
+                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto whitespace-pre-wrap break-words">{`Authorization: Bearer ${token ? token.substring(0, 40) + '...' : 'YOUR_JWT_TOKEN'}
+Content-Type: application/json`}</pre>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Body JSON:</label>
+                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
+  "LoaiDV": 2,
+  "Content": [
+    {
+      "Id": "507f1f77bcf86cd799439011",
+      "Status": "Live",
+      "Response": "Approved 91 $1.00"
     }
-  }
+  ]
+}`}</pre>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Sample Response:</label>
+                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
+  "ErrorId": 0,
+  "Title": "Success", 
+  "Message": "Updated successfully"
 }`}</pre>
               </div>
             </div>
@@ -367,115 +302,11 @@ curl_close($ch);
           <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
             <h5 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Important Notes:</h5>
             <ul className="text-sm space-y-1 text-blue-800 dark:text-blue-200">
-              <li>• Include the token in all requests as: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">Authorization: Bearer YOUR_TOKEN</code></li>
-              <li>• Tokens expire after 30 days</li>
-              <li>• Store your token securely - never expose it in client-side code</li>
-              <li>• Use refresh token to get a new access token when expired</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Card Checking API */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" /> 
-            Card Checking API
-          </CardTitle>
-          <CardDescription>
-            Submit credit cards for validation and checking
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Start Checking Session */}
-          <div className="space-y-3">
-            <h4 className="font-semibold text-base sm:text-lg">1. Start Checking Session</h4>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Endpoint:</label>
-                <pre className="bg-muted p-2 rounded text-xs mt-1 overflow-x-auto">POST https://checkcc.live/api/checker/start</pre>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Headers:</label>
-                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto whitespace-pre-wrap break-words">{`Authorization: Bearer ${token ? token.substring(0, 40) + '...' : 'YOUR_JWT_TOKEN'}
-Content-Type: application/json`}</pre>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Request Body:</label>
-                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
-  "cards": [
-    {
-      "cardNumber": "4532123456789012",
-      "expiryMonth": "12",
-      "expiryYear": "2025",
-      "cvv": "123"
-    }
-  ],
-  "checkType": 1
-}`}</pre>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Response:</label>
-                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
-  "success": true,
-  "data": {
-    "sessionId": "65a1b2c3d4e5f6789",
-    "total": 1,
-    "pricePerCard": 0.5,
-    "estimatedCost": 0.5
-  }
-}`}</pre>
-              </div>
-            </div>
-          </div>
-
-          {/* Get Session Status */}
-          <div className="space-y-3">
-            <h4 className="font-semibold text-base sm:text-lg">2. Get Session Status & Results</h4>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Endpoint:</label>
-                <pre className="bg-muted p-2 rounded text-xs mt-1 overflow-x-auto">GET https://checkcc.live/api/checker/status/:sessionId</pre>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Headers:</label>
-                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto whitespace-pre-wrap break-words">{`Authorization: Bearer ${token ? token.substring(0, 40) + '...' : 'YOUR_JWT_TOKEN'}`}</pre>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Response:</label>
-                <pre className="bg-muted p-3 rounded text-xs mt-1 overflow-x-auto">{`{
-  "success": true,
-  "data": {
-    "session": {
-      "_id": "65a1b2c3d4e5f6789",
-      "status": "completed",
-      "progress": 100,
-      "live": 1,
-      "die": 0,
-      "unknown": 0
-    },
-    "results": [
-      {
-        "card": "4532123456789012",
-        "status": "live",
-        "response": "Approved",
-        "checkedAt": "2025-01-23T10:30:00.000Z"
-      }
-    ]
-  }
-}`}</pre>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4 bg-yellow-50 dark:bg-yellow-950 rounded-lg">
-            <h5 className="font-medium mb-2 text-yellow-900 dark:text-yellow-100">API Parameters:</h5>
-            <ul className="text-sm space-y-1 text-yellow-800 dark:text-yellow-200">
-              <li>• <strong>checkType</strong>: 1 = Live check (cheaper), 2 = Charge test (more expensive)</li>
-              <li>• <strong>status values</strong>: "live", "die", "unknown"</li>
-              <li>• Credits are deducted per successfully checked card</li>
-              <li>• Poll the status endpoint every 3-5 seconds until status = "completed"</li>
+              <li>• JWT Token is required in all requests to identify user and check credit</li>
+              <li>• LoaiDV=1: System will deduct credits based on number of cards fetched</li>
+              <li>• LoaiDV=2: Send check results back to update database</li>
+              <li>• TypeCheck: 1=Live check, 2=Charge test (costs more credits)</li>
+              <li>• Status values: "Live", "Die", "Unknown"</li>
             </ul>
           </div>
         </CardContent>

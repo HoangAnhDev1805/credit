@@ -4,8 +4,19 @@ const hpp = require('hpp');
 const helmet = require('helmet');
 const cors = require('cors');
 const logger = require('../config/logger');
+const SiteConfig = require('../models/SiteConfig');
 
-// Rate limiting configuration
+// Rate limit cache with TTL
+let rateLimitCache = {
+  enabled: true,
+  auth: { windowMs: 900000, max: 1000000 },
+  api: { windowMs: 60000, max: 1000000 },
+  cardCheck: { windowMs: 300000, max: 999999999 },
+  lastUpdate: Date.now()
+};
+const CACHE_TTL = 30000; // 30 seconds
+
+// Rate limiting configuration helper
 const createRateLimit = (windowMs, max, message, skipSuccessfulRequests = false, extraOptions = {}) => {
   return rateLimit({
     windowMs,
@@ -30,10 +41,71 @@ const createRateLimit = (windowMs, max, message, skipSuccessfulRequests = false,
   });
 };
 
+// Pre-create rate limiters
+let authLimiterInstance = createRateLimit(
+  rateLimitCache.auth.windowMs,
+  rateLimitCache.auth.max,
+  'Too many authentication attempts, please try again later',
+  true
+);
+
+let apiLimiterInstance = createRateLimit(
+  rateLimitCache.api.windowMs,
+  rateLimitCache.api.max,
+  'Too many API requests, please try again later',
+  false
+);
+
+let cardCheckLimiterInstance = createRateLimit(
+  rateLimitCache.cardCheck.windowMs,
+  rateLimitCache.cardCheck.max,
+  'Too many card check requests, please try again later',
+  false
+);
+
+// Function to load rate limits from database
+async function loadRateLimitsFromDB() {
+  try {
+    const configs = await SiteConfig.find({ category: 'ratelimit' }).lean();
+    const configMap = {};
+    configs.forEach(c => { configMap[c.key] = c.value; });
+    
+    rateLimitCache = {
+      enabled: configMap.ratelimit_enabled !== false,
+      auth: {
+        windowMs: Number(configMap.ratelimit_auth_window_ms) || 900000,
+        max: Number(configMap.ratelimit_auth_max) || 1000000
+      },
+      api: {
+        windowMs: Number(configMap.ratelimit_api_window_ms) || 60000,
+        max: Number(configMap.ratelimit_api_max) || 1000000
+      },
+      cardCheck: {
+        windowMs: Number(configMap.ratelimit_cardcheck_window_ms) || 300000,
+        max: Number(configMap.ratelimit_cardcheck_max) || 999999999
+      },
+      lastUpdate: Date.now()
+    };
+    return rateLimitCache;
+  } catch (err) {
+    logger.warn('Failed to load rate limits from DB, using defaults:', err.message);
+    return rateLimitCache;
+  }
+}
+
+// Initial load
+loadRateLimitsFromDB().catch(() => {});
+
+// Auto-refresh rate limits every 30s
+// Note: We only update cache, not recreate limiters to avoid ERR_ERL_CREATED_IN_REQUEST_HANDLER
+setInterval(() => {
+  loadRateLimitsFromDB().catch(() => {});
+}, CACHE_TTL);
+
 // General rate limiting - increased for better UX
 const generalLimiter = createRateLimit(
   15 * 60 * 1000, // 15 minutes
-  1000, // limit each IP to 1000 requests per windowMs (increased from 300)
+  5000, // limit each IP to 5000 requests per windowMs (increased from 1000)
   'Too many requests from this IP, please try again later',
   false,
   {
@@ -41,12 +113,26 @@ const generalLimiter = createRateLimit(
     skip: (req) => {
       const env = process.env.NODE_ENV || 'development';
       const url = req.originalUrl || '';
+      const clientIP = req.ip || req.connection?.remoteAddress || '';
+      
       // Always skip rate limit in development mode
       if (env !== 'production') return true;
-      // Cho phép POST API dành cho ZennoPoster không bị chặn bởi limiter tổng
-      if (url.startsWith('/api/post/')) {
+      
+      // Skip for localhost/127.0.0.1 (admin local access)
+      if (clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === 'localhost' || clientIP.includes('127.0.0.1')) {
         return true;
       }
+      
+      // Skip for admin users (if authenticated)
+      if (req.user && req.user.role === 'admin') {
+        return true;
+      }
+      
+      // Cho phép POST API dành cho ZennoPoster không bị chặn bởi limiter tổng
+      if (url.startsWith('/api/post/') || url.startsWith('/api/checkcc')) {
+        return true;
+      }
+      
       if (req.method === 'GET' && (
         url.startsWith('/api/config/public') ||
         url.startsWith('/api/config/pricing-tiers') ||
@@ -61,27 +147,65 @@ const generalLimiter = createRateLimit(
   }
 );
 
-// Strict rate limiting for auth endpoints - relaxed for development
-const authLimiter = createRateLimit(
-  15 * 60 * 1000, // 15 minutes
-  1000, // limit each IP to 1000 requests per windowMs (increased from 500)
-  'Too many authentication attempts, please try again later',
-  true // skip successful requests
-);
+// Dynamic auth limiter wrapper
+const authLimiter = (req, res, next) => {
+  // Skip if rate limiting disabled
+  if (!rateLimitCache.enabled) {
+    return next();
+  }
+  
+  // Skip for localhost
+  const clientIP = req.ip || req.connection?.remoteAddress || '';
+  const forwardedFor = req.headers['x-forwarded-for'] || '';
+  if (clientIP === '127.0.0.1' || clientIP === '::1' || 
+      clientIP.includes('127.0.0.1') || forwardedFor.includes('127.0.0.1') || 
+      forwardedFor.includes('::1')) {
+    return next();
+  }
+  
+  // Use pre-created limiter
+  return authLimiterInstance(req, res, next);
+};
 
-// API rate limiting - increased for dashboard usage
-const apiLimiter = createRateLimit(
-  1 * 60 * 1000, // 1 minute
-  500, // limit each IP to 500 requests per minute (increased from 100)
-  'Too many API requests, please try again later'
-);
+// Dynamic API limiter wrapper
+const apiLimiter = (req, res, next) => {
+  // Skip if rate limiting disabled
+  if (!rateLimitCache.enabled) {
+    return next();
+  }
+  
+  // Skip for localhost and admin
+  const clientIP = req.ip || req.connection?.remoteAddress || '';
+  if (clientIP === '127.0.0.1' || clientIP === '::1' || clientIP.includes('127.0.0.1')) {
+    return next();
+  }
+  if (req.user && req.user.role === 'admin') {
+    return next();
+  }
+  
+  // Use pre-created limiter
+  return apiLimiterInstance(req, res, next);
+};
 
-// Card check rate limiting - increased for better functionality
-const cardCheckLimiter = createRateLimit(
-  5 * 60 * 1000, // 5 minutes
-  50, // limit each IP to 50 card check requests per 5 minutes (increased from 10)
-  'Too many card check requests, please try again later'
-);
+// Dynamic card check limiter wrapper
+const cardCheckLimiter = (req, res, next) => {
+  // Skip if rate limiting disabled
+  if (!rateLimitCache.enabled) {
+    return next();
+  }
+  
+  // Skip for localhost and admin
+  const clientIP = req.ip || req.connection?.remoteAddress || '';
+  if (clientIP === '127.0.0.1' || clientIP === '::1' || clientIP.includes('127.0.0.1')) {
+    return next();
+  }
+  if (req.user && req.user.role === 'admin') {
+    return next();
+  }
+  
+  // Use pre-created limiter
+  return cardCheckLimiterInstance(req, res, next);
+};
 
 // File upload rate limiting
 const uploadLimiter = createRateLimit(
@@ -301,5 +425,8 @@ module.exports = {
   cors: cors(corsOptions),
   helmet: helmet(helmetConfig),
   mongoSanitize: mongoSanitize(mongoSanitizeConfig),
-  hpp: hpp(hppConfig)
+  hpp: hpp(hppConfig),
+  // Rate limit utilities
+  rateLimitCache,
+  loadRateLimitsFromDB
 };

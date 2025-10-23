@@ -124,8 +124,8 @@ const validateCardGenerate = [
     .withMessage('BIN must be exactly 6 digits'),
   
   body('quantity')
-    .isInt({ min: 1, max: 100 })
-    .withMessage('Quantity must be between 1 and 100'),
+    .isInt({ min: 1, max: 1000 })
+    .withMessage('Quantity must be between 1 and 1000'),
   
   body('month')
     .optional()
@@ -240,6 +240,11 @@ const validateUserUpdate = [
     .optional()
     .isIn(['user', 'admin'])
     .withMessage('Role must be user or admin'),
+  
+  body('checker')
+    .optional()
+    .isInt({ min: 0, max: 1 })
+    .withMessage('Checker must be 0 or 1'),
   
   body('balance')
     .optional()

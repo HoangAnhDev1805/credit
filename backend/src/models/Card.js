@@ -30,7 +30,7 @@ const cardSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['live', 'die', 'unknown', 'checking'],
+    enum: ['live', 'die', 'unknown', 'checking', 'pending'],
     required: [true, 'Card status is required'],
     default: 'unknown'
   },
@@ -123,6 +123,21 @@ const cardSchema = new mongoose.Schema({
   },
   lastCheckAt: {
     type: Date
+  },
+  // Deadline cho lần check hiện tại (dùng để reset nếu Zenno không trả đúng hạn)
+  checkDeadlineAt: {
+    type: Date
+  },
+  // Cờ đếm processed cho session (tránh đếm trùng)
+  sessionCounted: {
+    type: Boolean,
+    default: false
+  },
+  // Cờ đã tính tiền trong session (tránh double billing)
+  billedInSession: {
+    type: Boolean,
+    default: false,
+    index: true
   }
 }, {
   timestamps: true,
@@ -157,7 +172,7 @@ cardSchema.index({ userId: 1, createdAt: -1 });
 cardSchema.index({ sessionId: 1, status: 1 });
 
 // Compound index for efficient queries
-cardSchema.index({ cardNumber: 1, userId: 1 }, { unique: true });
+cardSchema.index({ fullCard: 1, userId: 1 }, { unique: true });
 
 // Pre-save middleware to extract card information
 cardSchema.pre('save', function(next) {

@@ -24,13 +24,11 @@ const transactionSchema = new mongoose.Schema({
   },
   balanceBefore: {
     type: Number,
-    required: [true, 'Balance before is required'],
-    min: 0
+    required: [true, 'Balance before is required']
   },
   balanceAfter: {
     type: Number,
-    required: [true, 'Balance after is required'],
-    min: 0
+    required: [true, 'Balance after is required']
   },
   relatedId: {
     type: mongoose.Schema.Types.ObjectId

@@ -21,7 +21,8 @@ import {
   LogOut,
   Bell,
   Search,
-  Sliders
+  Sliders,
+  Shield
 } from 'lucide-react'
 
 const navigation = [
@@ -57,14 +58,24 @@ const navigation = [
     icon: Settings
   },
   {
+    name: 'Rate Limiting',
+    href: '/admin/ratelimit',
+    icon: Shield
+  },
+  {
     name: 'API Tester',
     href: '/admin/api-tester',
-    icon: CreditCard // Reuse icon, or can import Search/Zap
-  }
-  ,{
+    icon: CreditCard
+  },
+  {
     name: 'Cấu hình Checker',
     href: '/admin/checker-config',
     icon: Sliders
+  },
+  {
+    name: 'Thông tin server',
+    href: '/admin/server-info',
+    icon: LayoutDashboard
   }
 ]
 

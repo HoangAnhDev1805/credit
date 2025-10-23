@@ -33,13 +33,33 @@ let io;
 try {
   const { Server } = require('socket.io');
   io = new Server(serverHttp, {
-    cors: { origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'] }
+    cors: { 
+      origin: '*', 
+      methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+      credentials: true
+    },
+    path: '/socket.io/',
+    transports: ['websocket', 'polling'],
+    allowEIO3: true
   });
   app.set('io', io);
   io.on('connection', (socket) => {
     // Basic join room by user id if provided
     const uid = socket.handshake.auth?.userId || socket.handshake.query?.userId;
     if (uid) socket.join(String(uid));
+
+    // Allow client to request an immediate server stats push
+    socket.on('server:stats:request', async () => {
+      try { const payload = await collectServerStats(); socket.emit('server:stats', payload) } catch {}
+    })
+
+    // Allow clients to join/leave session rooms for fine-grained updates
+    socket.on('session:join', (sid) => {
+      try { if (sid) socket.join(`session:${String(sid)}`) } catch {}
+    })
+    socket.on('session:leave', (sid) => {
+      try { if (sid) socket.leave(`session:${String(sid)}`) } catch {}
+    })
   });
 } catch (e) {
   console.warn('Socket.IO init failed:', e?.message);
@@ -88,11 +108,11 @@ try {
   setInterval(async () => {
     try {
       const now = new Date();
-      // Only timeout when per-card deadline passed
+      // Only reset cards that are stuck in 'checking' beyond deadline to allow requeue
       const res = await Card.updateMany(
         {
-          zennoposter: 0,
-          status: { $in: ['pending', 'checking'] },
+          zennoposter: { $in: [0, null] },
+          status: 'checking',
           checkDeadlineAt: { $exists: true, $lte: now }
         },
         {
@@ -100,37 +120,12 @@ try {
             status: 'unknown',
             errorMessage: 'Timeout by system',
             updatedAt: new Date(),
-            zennoposter: 1
+            checkDeadlineAt: null
           }
         }
       );
-      if (res && res.modifiedCount) {
-        console.log(`[Sweeper] Auto-timeout ${res.modifiedCount} cards to unknown`);
-        try {
-          const io = app.get('io');
-          if (io) {
-            // Emit card results for recently updated unknowns (last 5s)
-            const recent = await Card.find({
-              status: 'unknown',
-              zennoposter: 1,
-              updatedAt: { $gte: new Date(Date.now() - 5000) }
-            }).select('_id fullCard status errorMessage sessionId originUserId').lean();
-            for (const c of recent) {
-              const room = c.originUserId ? String(c.originUserId) : null;
-              if (room) {
-                io.to(room).emit('checker:card', {
-                  sessionId: c.sessionId,
-                  cardId: String(c._id),
-                  card: c.fullCard,
-                  status: c.status,
-                  response: c.errorMessage || ''
-                });
-              }
-            }
-          }
-        } catch (ee) {
-          console.error('Sweeper emit error:', ee.message);
-        }
+      if (res && (res.modifiedCount || res.nModified)) {
+        console.log(`[Sweeper] Reset ${(res.modifiedCount || res.nModified)} timed-out cards to unknown for requeue`);
       }
     } catch (e) {
       console.error('Sweeper error:', e.message);
@@ -349,3 +344,56 @@ process.on('unhandledRejection', (err) => {
 
 // Export app for testing
 module.exports = app;
+
+// ===== Server Stats (CPU/MEM/Disk) broadcaster =====
+const os = require('os');
+const { exec } = require('child_process');
+
+async function getDiskUsage() {
+  return new Promise((resolve) => {
+    // Portable enough for linux envs used here; parses root filesystem
+    exec('df -kP /', (err, stdout) => {
+      if (err || !stdout) return resolve({ total: 0, used: 0, free: 0, percent: 0 });
+      const lines = stdout.trim().split('\n');
+      if (lines.length < 2) return resolve({ total: 0, used: 0, free: 0, percent: 0 });
+      const parts = lines[1].split(/\s+/);
+      const totalK = Number(parts[1] || 0);
+      const usedK = Number(parts[2] || 0);
+      const availK = Number(parts[3] || 0);
+      const pctStr = String(parts[4] || '0%').replace('%','');
+      const total = totalK * 1024; // bytes
+      const used = usedK * 1024;
+      const free = availK * 1024;
+      const percent = total > 0 ? Math.round((used/total)*100) : Number(pctStr);
+      resolve({ total, used, free, percent });
+    });
+  });
+}
+
+async function collectServerStats() {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  const memPercent = totalMem > 0 ? Math.round((usedMem / totalMem) * 100) : 0;
+  const load1 = os.loadavg()[0] || 0; // 1 minute load average
+  const cpuCount = os.cpus()?.length || 1;
+  // Normalize CPU percent rough estimate: load1 / cpuCount * 100
+  const cpuPercent = Math.min(100, Math.round((load1 / Math.max(1, cpuCount)) * 100));
+  const disk = await getDiskUsage();
+  return {
+    ts: Date.now(),
+    cpu: { percent: cpuPercent, load1, cores: cpuCount },
+    mem: { total: totalMem, used: usedMem, free: freeMem, percent: memPercent },
+    disk
+  };
+}
+
+// Periodic broadcast every 2s
+setInterval(async () => {
+  try {
+    const ioRef = app.get('io');
+    if (!ioRef) return;
+    const payload = await collectServerStats();
+    ioRef.emit('server:stats', payload);
+  } catch {}
+}, 2000);

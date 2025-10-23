@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api'
 import { useSocket } from '@/hooks/use-socket'
-import { Search, Filter, Download, Copy, CreditCard, Eye, CheckCircle2, XCircle, HelpCircle, Workflow } from 'lucide-react'
+import { Search, Filter, Download, Copy, CreditCard, Eye, CheckCircle2, XCircle, HelpCircle, Workflow, Trash2, ClipboardCopy } from 'lucide-react'
 
 interface Card {
   _id: string
@@ -52,6 +52,8 @@ export default function CardManagement() {
   const [selected, setSelected] = useState<Card|null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [gateMap, setGateMap] = useState<Record<string | number, string>>({})
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<{type: 'selected' | 'status', status?: string, count: number, text: string} | null>(null)
   const { on: socketOn } = useSocket({ enabled: true })
   
   // Filters
@@ -110,6 +112,8 @@ export default function CardManagement() {
 
       const response = await apiClient.get(`/admin/cards?${params}`)
       let list: Card[] = response.data.data.cards || []
+      const pagination = response.data?.data?.pagination || {}
+      const serverStats = response.data?.data?.stats
       const g = response.data?.data?.globalStats
       if (g) setGlobalStats({
         total: Number(g.total||0),
@@ -118,34 +122,42 @@ export default function CardManagement() {
         unknown: Number(g.unknown||0),
         checking: Number(g.checking||0)
       })
-      // If user picked 'middle', apply strict middle filtering client-side
+      // If user picked 'middle', apply strict middle filtering client-side (preview only)
       if (searchTerm && searchPosition === 'middle') {
         const q = searchTerm.toLowerCase()
         list = list.filter((c) => {
           const text = (c.fullCard || c.cardNumber || '').toLowerCase()
           return text.includes(q) && !text.startsWith(q) && !text.endsWith(q)
         })
+        // Compute page-only stats for preview, but keep total from DB
+        const s = { foundTotal: list.length, duplicateCount: 0, liveCount: 0, dieCount: 0, unknownCount: 0, pendingCount: 0 }
+        const seen = new Map<string, number>()
+        for (const c of list) {
+          const key = c.cardNumber || c.fullCard || ''
+          if (key) seen.set(key, (seen.get(key) || 0) + 1)
+          const st = String(c.status)
+          if (st === 'live') s.liveCount += 1
+          else if (st === 'die') s.dieCount += 1
+          else if (st === 'checking' || st === 'pending' || (st === 'unknown' && !c.checkedAt)) s.pendingCount += 1
+          else s.unknownCount += 1
+        }
+        for (const count of Array.from(seen.values())) { if (count > 1) s.duplicateCount += (count - 1) }
+        setStats(s)
+      } else {
+        // Use server filtered stats
+        if (serverStats) setStats({
+          foundTotal: Number(serverStats.foundTotal||0),
+          duplicateCount: Number(serverStats.duplicateCount||0),
+          liveCount: Number(serverStats.liveCount||0),
+          dieCount: Number(serverStats.dieCount||0),
+          unknownCount: Number(serverStats.unknownCount||0),
+          pendingCount: Number(serverStats.pendingCount||0)
+        })
       }
       setCards(list)
-      // reset selections if page changed
       setSelectedIds(new Set())
-      // total items should reflect filtered list (client-side middle)
-      setTotalCards(list.length)
-      // Compute stats on the client for the currently displayed list
-      const s = { foundTotal: 0, duplicateCount: 0, liveCount: 0, dieCount: 0, unknownCount: 0, pendingCount: 0 }
-      const seen = new Map<string, number>()
-      for (const c of list) {
-        s.foundTotal += 1
-        const key = c.cardNumber || c.fullCard || ''
-        if (key) seen.set(key, (seen.get(key) || 0) + 1)
-        const st = String(c.status)
-        if (st === 'live') s.liveCount += 1
-        else if (st === 'die') s.dieCount += 1
-        else if (st === 'checking' || st === 'pending' || (st === 'unknown' && !c.checkedAt)) s.pendingCount += 1
-        else s.unknownCount += 1
-      }
-      for (const count of Array.from(seen.values())) { if (count > 1) s.duplicateCount += (count - 1) }
-      setStats(s)
+      // Keep total from server pagination (DB-wide with current filters)
+      if (typeof pagination?.totalItems === 'number') setTotalCards(Number(pagination.totalItems))
     } catch (error: any) {
       console.error('Failed to fetch cards:', error)
       showError('Lỗi tải dữ liệu', 'Không thể tải danh sách thẻ')
@@ -226,15 +238,93 @@ export default function CardManagement() {
 
   // Xóa danh sách đã chọn
   const deleteSelected = async () => {
-    const ids = selectedList.map(c => c._id)
-    if (ids.length === 0) return
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) {
+      showError('Lỗi', 'Vui lòng chọn ít nhất 1 thẻ')
+      return
+    }
+    setConfirmAction({
+      type: 'selected',
+      count: ids.length,
+      text: `Bạn có chắc muốn xóa ${ids.length} thẻ đã chọn?`
+    })
+    setConfirmOpen(true)
+  }
+
+  const executeDeleteSelected = async () => {
+    const ids = Array.from(selectedIds)
     try {
       await apiClient.delete('/admin/cards', { data: { ids } })
       success('Đã xóa', `Đã xóa ${ids.length} thẻ`)
+      setSelectedIds(new Set())
       fetchCards()
     } catch (e:any) {
       showError('Lỗi xóa', e?.response?.data?.message || 'Không thể xóa thẻ đã chọn')
+    } finally {
+      setConfirmOpen(false)
     }
+  }
+
+  // Xóa theo trạng thái
+  const deleteByStatus = async (status: string) => {
+    const count = status === 'live' ? globalStats.live : 
+                  status === 'die' ? globalStats.die :
+                  status === 'unknown' ? globalStats.unknown :
+                  status === 'checking' ? globalStats.checking : 0
+    if (count === 0) {
+      showError('Lỗi', `Không có thẻ ${status} nào để xóa`)
+      return
+    }
+    const statusText = status === 'live' ? 'Live' : 
+                       status === 'die' ? 'Die' :
+                       status === 'unknown' ? 'Chưa xác định' : 'Đang kiểm tra'
+    setConfirmAction({
+      type: 'status',
+      status,
+      count,
+      text: `Bạn có chắc muốn xóa TẤT CẢ ${count} thẻ ${statusText}?`
+    })
+    setConfirmOpen(true)
+  }
+
+  const executeDeleteByStatus = async () => {
+    if (!confirmAction || confirmAction.type !== 'status') return
+    const { status } = confirmAction
+    const statusText = status === 'live' ? 'Live' : 
+                       status === 'die' ? 'Die' :
+                       status === 'unknown' ? 'Chưa xác định' : 'Đang kiểm tra'
+    try {
+      await apiClient.delete('/admin/cards/by-status', { data: { status } })
+      success('Đã xóa', `Đã xóa tất cả thẻ ${statusText}`)
+      setSelectedIds(new Set())
+      fetchCards()
+    } catch (e:any) {
+      showError('Lỗi xóa', e?.response?.data?.message || `Không thể xóa thẻ ${statusText}`)
+    } finally {
+      setConfirmOpen(false)
+    }
+  }
+
+  const handleConfirmDelete = () => {
+    if (!confirmAction) return
+    if (confirmAction.type === 'selected') {
+      executeDeleteSelected()
+    } else if (confirmAction.type === 'status') {
+      executeDeleteByStatus()
+    }
+  }
+
+  // Sao chép các thẻ đã chọn
+  const copySelected = () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) {
+      showError('Lỗi', 'Vui lòng chọn ít nhất 1 thẻ')
+      return
+    }
+    const selected = cards.filter(c => selectedIds.has(c._id))
+    const text = selected.map(c => c.fullCard).join('\n')
+    navigator.clipboard.writeText(text)
+    success('Đã sao chép', `Đã sao chép ${selected.length} thẻ vào clipboard`)
   }
 
   const handleCopyCard = (card: string) => {
@@ -545,30 +635,66 @@ export default function CardManagement() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Quản lý thẻ</h1>
-          <p className="text-muted-foreground">Danh sách thẻ trong hệ thống</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Quản lý thẻ</h1>
+            <p className="text-muted-foreground">Danh sách thẻ trong hệ thống</p>
+          </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button onClick={handleExportCards} disabled={cards.length === 0}>
+
+        {/* Action Buttons Row 1: Export */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-sm font-medium text-muted-foreground mr-2">Xuất file:</span>
+          <Button size="sm" onClick={handleExportCards} disabled={cards.length === 0}>
             <Download className="h-4 w-4 mr-2" />
-            Xuất file CSV
+            CSV (Tất cả)
           </Button>
-          <Button variant="secondary" onClick={handleExportTxt} disabled={cards.length === 0}>
+          <Button size="sm" variant="secondary" onClick={handleExportTxt} disabled={cards.length === 0}>
             <Download className="h-4 w-4 mr-2" />
-            Xuất file TXT
+            TXT (Tất cả)
           </Button>
-          <Button variant="outline" onClick={exportSelectedCsv} disabled={selectedList.length === 0}>
+          <Button size="sm" variant="outline" onClick={exportSelectedCsv} disabled={selectedIds.size === 0}>
             <Download className="h-4 w-4 mr-2" />
-            CSV (đã chọn)
+            CSV ({selectedIds.size})
           </Button>
-          <Button variant="outline" onClick={exportSelectedTxt} disabled={selectedList.length === 0}>
+          <Button size="sm" variant="outline" onClick={exportSelectedTxt} disabled={selectedIds.size === 0}>
             <Download className="h-4 w-4 mr-2" />
-            TXT (đã chọn)
+            TXT ({selectedIds.size})
           </Button>
-          <Button variant="destructive" onClick={deleteSelected} disabled={selectedList.length === 0}>
-            Xóa đã chọn
+        </div>
+
+        {/* Action Buttons Row 2: Selected Actions */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-sm font-medium text-muted-foreground mr-2">Thao tác đã chọn:</span>
+          <Button size="sm" variant="default" onClick={copySelected} disabled={selectedIds.size === 0}>
+            <ClipboardCopy className="h-4 w-4 mr-2" />
+            Sao chép ({selectedIds.size})
+          </Button>
+          <Button size="sm" variant="destructive" onClick={deleteSelected} disabled={selectedIds.size === 0}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            Xóa đã chọn ({selectedIds.size})
+          </Button>
+        </div>
+
+        {/* Action Buttons Row 3: Delete by Status */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-sm font-medium text-muted-foreground mr-2">Xóa theo trạng thái:</span>
+          <Button size="sm" variant="outline" onClick={() => deleteByStatus('live')} disabled={globalStats.live === 0} className="border-green-300 text-green-700 hover:bg-green-50">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Live ({globalStats.live})
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => deleteByStatus('die')} disabled={globalStats.die === 0} className="border-red-300 text-red-700 hover:bg-red-50">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Die ({globalStats.die})
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => deleteByStatus('unknown')} disabled={globalStats.unknown === 0} className="border-yellow-300 text-yellow-700 hover:bg-yellow-50">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Unknown ({globalStats.unknown})
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => deleteByStatus('checking')} disabled={globalStats.checking === 0} className="border-blue-300 text-blue-700 hover:bg-blue-50">
+            <Trash2 className="h-4 w-4 mr-2" />
+            Checking ({globalStats.checking})
           </Button>
         </div>
       </div>
@@ -734,6 +860,46 @@ export default function CardManagement() {
         onItemsPerPageChange={setItemsPerPage}
         itemsPerPageOptions={[10, 20, 50, 100]}
       />
+
+      {/* Confirmation Modal */}
+      <SharedModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title="Xác nhận xóa"
+        size="md"
+      >
+        {confirmAction && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold mb-2">{confirmAction.text}</h3>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>• Số lượng: <strong className="text-red-600">{confirmAction.count} thẻ</strong></p>
+                  {confirmAction.type === 'status' && (
+                    <p>• Trạng thái: <strong>{confirmAction.status}</strong></p>
+                  )}
+                  <p className="text-yellow-600 dark:text-yellow-400 font-medium mt-2">
+                    ⚠️ Hành động này KHÔNG THỂ HOÀN TÁC!
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+                Hủy
+              </Button>
+              <Button variant="destructive" onClick={handleConfirmDelete}>
+                Xác nhận xóa
+              </Button>
+            </div>
+          </div>
+        )}
+      </SharedModal>
 
       {/* Detail Modal */}
       <SharedModal

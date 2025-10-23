@@ -1,12 +1,14 @@
 "use client"
 
 import "@/styles/checker.css"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { apiClient, type Card } from "@/lib/api"
 import { useSocket } from "@/hooks/use-socket"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Card as UICard, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -34,10 +36,21 @@ import { useToast } from "@/hooks/use-toast"
 import { useI18n } from "@/components/I18nProvider"
 import { useAuthStore } from "@/lib/auth"
 
+// Normalize backend/WS statuses to UI statuses
+const normalizeStatus = (s: string): CheckResult['status'] => {
+  const v = String(s || '').toLowerCase()
+  if (v === 'live') return 'Live'
+  if (v === 'die' || v === 'dead') return 'Die'
+  if (v === 'error') return 'Error'
+  if (v === 'unknown') return 'Unknown'
+  if (v === 'checking') return 'Checking'
+  return 'Unknown'
+}
+
 interface CheckResult {
   id: string
   card: string
-  status: "Live" | "Dead" | "Error" | "Unknown" | "Checking"
+  status: "Live" | "Die" | "Error" | "Unknown" | "Checking"
   response?: string
 }
 
@@ -54,7 +67,7 @@ export default function CheckerPage() {
   const { user } = useAuthStore()
   
   // Setup Socket.IO connection
-  const { on: socketOn, isConnected } = useSocket({ enabled: true, debug: false })
+  const { on: socketOn, emit: socketEmit, isConnected } = useSocket({ enabled: true, debug: false })
 
   // Input & session
   const [cardsInput, setCardsInput] = useState("")
@@ -67,6 +80,9 @@ export default function CheckerPage() {
   const [timeLeft, setTimeLeft] = useState<number>(0)
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
   const [hasFetched, setHasFetched] = useState<boolean>(false)
+  const stopRequestedRef = useRef<boolean>(false)
+  const sentCardsRef = useRef<string[]>([])
+  const autoStopRef = useRef<boolean>(false)
 
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
@@ -82,18 +98,219 @@ export default function CheckerPage() {
     error: 0,
     unknown: 0,
     total: 0,
+    pending: 0,
     progress: 0,
     successRate: 0,
     liveRate: 0,
   })
 
+  // Billing display
+  const [recentDebit, setRecentDebit] = useState<number>(0)
+  const recentDebitTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [sessionBilled, setSessionBilled] = useState<number>(0)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summary, setSummary] = useState<{ total: number; live: number; die: number; unknown: number; billed: number; durationSec: number }>({ total: 0, live: 0, die: 0, unknown: 0, billed: 0, durationSec: 0 })
+  const sessionStartRef = useRef<number | null>(null)
+
   // Results
   const [results, setResults] = useState<CheckResult[]>([])
-  const [filter, setFilter] = useState<"all" | "live" | "dead" | "unknown" | "error" | "checking">("all")
+  const [filter, setFilter] = useState<"all" | "live" | "die" | "unknown" | "error" | "checking">("all")
+  const [searchCard, setSearchCard] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize] = useState(100) // 100 results per page
+  
   const filteredResults = useMemo(() => {
-    if (filter === "all") return results
-    return results.filter((r) => r.status.toLowerCase() === filter)
-  }, [results, filter])
+    let filtered = results
+    
+    // Filter by status
+    if (filter !== "all") {
+      filtered = filtered.filter((r) => r.status.toLowerCase() === filter)
+    }
+    
+    // Filter by card search (partial match)
+    if (searchCard.trim()) {
+      const search = searchCard.trim().toLowerCase()
+      filtered = filtered.filter((r) => r.card.toLowerCase().includes(search))
+    }
+    
+    return filtered
+  }, [results, filter, searchCard])
+  
+  // Paginated results
+  const paginatedResults = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    const end = start + pageSize
+    return filteredResults.slice(start, end)
+  }, [filteredResults, currentPage, pageSize])
+  
+  const totalPages = Math.ceil(filteredResults.length / pageSize)
+
+  // Remove finished cards from textarea input (and persist to localStorage)
+  const removeCardsFromInput = useCallback((cards: string[]) => {
+    if (!cards || cards.length === 0) return
+    setCardsInput(prev => {
+      if (!prev) return prev
+      const toRemove = new Set(cards.map(c => String(c).trim()))
+      const next = prev
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .filter(line => !toRemove.has(line))
+        .join('\n')
+      try { localStorage.setItem('checker_cards_input', next) } catch {}
+      return next
+    })
+  }, [])
+
+  // Join session room when sessionId is set; leave on change/unmount
+  useEffect(() => {
+    if (sessionId && socketEmit) {
+      try { socketEmit('session:join', sessionId) } catch {}
+    }
+    return () => {
+      if (sessionId && socketEmit) {
+        try { socketEmit('session:leave', sessionId) } catch {}
+      }
+    }
+  }, [sessionId, socketEmit])
+
+  // Load persisted state on mount (keep results after reload)
+  useEffect(() => {
+    try {
+      const savedResults = localStorage.getItem('checker_results')
+      const savedCardsInput = localStorage.getItem('checker_cards_input')
+      const savedCache = localStorage.getItem('checker_card_cache')
+      const savedSessionId = localStorage.getItem('checker_session_id')
+      const savedIsChecking = localStorage.getItem('checker_is_checking')
+
+      if (savedResults) {
+        const arr = JSON.parse(savedResults)
+        if (Array.isArray(arr)) {
+          const normalized = arr.map((r: any) => ({ ...r, status: normalizeStatus(r?.status) }))
+          setResults(normalized)
+          const unknownCards = normalized.filter((r: any) => r.status === 'Unknown').map((r: any) => r.card)
+          if (unknownCards.length > 0) {
+            const txt = unknownCards.join('\n')
+            setCardsInput(txt)
+            try { localStorage.setItem('checker_cards_input', txt) } catch {}
+          } else if (savedCardsInput) {
+            setCardsInput(savedCardsInput)
+          }
+        }
+      }
+      // DON'T load stats from localStorage - they might be from old sessions
+      // Stats will be updated by socket/polling when session starts
+      if (savedCache) {
+        const entries: any[] = JSON.parse(savedCache)
+        if (Array.isArray(entries)) setCardCache(new Map(entries))
+      }
+      setIsChecking(false)
+      setSessionId(null)
+      try { localStorage.setItem('checker_is_checking', '0'); localStorage.removeItem('checker_session_id'); localStorage.removeItem('checker_stats') } catch {}
+    } catch {}
+  }, [])
+
+  // Secondary load: avoid overriding textarea after first init
+  useEffect(() => {
+    try {
+      const savedResults = localStorage.getItem('checker_results')
+      const savedCardsInput = localStorage.getItem('checker_cards_input')
+      const savedCache = localStorage.getItem('checker_card_cache')
+
+      if (savedResults) setResults(JSON.parse(savedResults))
+      if (savedCardsInput) { /* keep current input (may be Unknown list) */ }
+      // DON'T load stats from localStorage
+      if (savedCache) {
+        const entries: any[] = JSON.parse(savedCache)
+        if (Array.isArray(entries)) setCardCache(new Map(entries))
+      }
+    } catch {}
+  }, [])
+
+  // Persist to localStorage when state changes
+  useEffect(() => {
+    try { localStorage.setItem('checker_results', JSON.stringify(results)) } catch {}
+  }, [results])
+  useEffect(() => {
+    try { localStorage.setItem('checker_cards_input', cardsInput) } catch {}
+  }, [cardsInput])
+  // DON'T persist stats to localStorage - they should be session-specific only
+  useEffect(() => {
+    try { localStorage.setItem('checker_card_cache', JSON.stringify(Array.from(cardCache.entries()))) } catch {}
+  }, [cardCache])
+  useEffect(() => {
+    try { sessionId ? localStorage.setItem('checker_session_id', sessionId) : localStorage.removeItem('checker_session_id') } catch {}
+  }, [sessionId])
+  useEffect(() => {
+    try { localStorage.setItem('checker_is_checking', isChecking ? '1' : '0') } catch {}
+  }, [isChecking])
+
+  // After reload: only treat as running if a session is active and there are Checking items
+  useEffect(() => {
+    if (!sessionId) return
+    if (results.some(r => r.status === 'Checking')) setIsChecking(true)
+  }, [results, sessionId])
+
+  // Normalize leftover 'Checking' items only when not currently checking AND no active session
+  useEffect(() => {
+    if (sessionId) return
+    if (isChecking) return
+    setResults(prev => prev.map(r => r.status === 'Checking' ? { ...r, status: 'Unknown', response: 'Stopped' } : r))
+    setIsChecking(false)
+    try { localStorage.setItem('checker_is_checking', '0') } catch {}
+  }, [sessionId, isChecking])
+
+  // Resume polling after reload if needed
+  useEffect(() => {
+    if (!sessionId) return
+    if (isConnected && isConnected()) return // socket will drive updates
+    if (pollRef.current) return
+    pollRef.current = setInterval(async () => {
+      try {
+        const st = await apiClient.getCheckStatus(sessionId)
+        if (st.success) {
+          const sess = (st.data as any).session
+          const re = (st.data as any).results || []
+          setStats((s) => ({
+            ...s,
+            live: sess.live,
+            dead: sess.die,
+            unknown: sess.unknown,
+            progress: sess.progress,
+            successRate: sess.total > 0 ? Math.round(((sess.live + sess.die) / sess.total) * 100) : 0,
+            liveRate: sess.total > 0 ? Math.round((sess.live / sess.total) * 100) : 0,
+            total: sess.total
+          }))
+          // Merge results like logic above
+          setResults(prev => {
+            const list = [...prev]
+            const cacheNew = new Map(cardCache)
+            re.forEach((apiResult: any) => {
+              const cardLine = apiResult.card
+              const idx = list.findIndex(r => r.card === cardLine && r.status === 'Checking')
+              if (idx !== -1) {
+                const apiStatus = String(apiResult.status || '').toLowerCase()
+                if (apiStatus && apiStatus !== 'pending' && apiStatus !== 'checking') {
+                  const status = normalizeStatus(apiStatus)
+                  list[idx] = { ...list[idx], status: status as any, response: apiResult.response || '' }
+                  cacheNew.set(cardLine, { id: list[idx].id, card: cardLine, status: status as any, response: apiResult.response || '' })
+                }
+              }
+            })
+            setCardCache(cacheNew)
+            return list
+          })
+          if (sess.status === 'completed' || sess.pending === 0) {
+            if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+            setIsChecking(false)
+          } else {
+            setIsChecking(true)
+          }
+        }
+      } catch {}
+    }, 1500)
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [sessionId])
 
   // Report result to /api/checkcc with LoaiDV=2
   const reportToCheckCC = async (cardId: string, status: string, response?: string) => {
@@ -129,7 +346,10 @@ export default function CheckerPage() {
 
   const checkingCount = useMemo(() => results.filter(r => r.status === 'Checking').length, [results])
   const processedCount = useMemo(() => results.filter(r => r.status !== 'Checking').length, [results])
-  const remainingCount = useMemo(() => Math.max(0, (stats.total || results.length) - processedCount), [stats.total, results, processedCount])
+  const remainingCount = useMemo(() => {
+    if (typeof stats.pending === 'number' && stats.pending > 0) return stats.pending
+    return Math.max(0, (stats.total || results.length) - processedCount)
+  }, [stats.pending, stats.total, results, processedCount])
 
   // Polling
   const pollRef = useRef<NodeJS.Timeout | null>(null)
@@ -148,7 +368,7 @@ export default function CheckerPage() {
         const [gatesRes, publicTiersRes, adminTiersRes] = await Promise.all([
           apiClient.get('/gates').catch(() => null),
           apiClient.get('/config/pricing-tiers').catch(() => null),
-          user ? apiClient.get('/admin/pricing-tiers').catch(() => null) : Promise.resolve(null)
+          (user && user.role === 'admin') ? apiClient.get('/admin/pricing-tiers').catch(() => null) : Promise.resolve(null)
         ])
         
         // Refresh balance in background (update if changed)
@@ -196,19 +416,79 @@ export default function CheckerPage() {
       // Listen for balance changes via Socket.IO
       socketOn('user:balance-changed', (userData: any) => {
         if (userData?.balance != null) {
-          setBalance(userData.balance)
+          const newBal = Number(userData.balance)
+          // Hiển thị số credits bị trừ (đỏ) trong vài giây
+          if (!isNaN(newBal) && balance > 0 && newBal < balance) {
+            const diff = Math.max(0, balance - newBal)
+            setRecentDebit(diff)
+            try { if (recentDebitTimerRef.current) clearTimeout(recentDebitTimerRef.current) } catch {}
+            recentDebitTimerRef.current = setTimeout(() => setRecentDebit(0), 4000)
+          }
+          setBalance(newBal)
+        }
+      })
+      // Stop polling when socket connects
+      socketOn('connect', () => {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      })
+      // Resume polling when socket disconnects and a session is active
+      socketOn('disconnect', () => {
+        if (!sessionId) return
+        if (!pollRef.current) {
+          pollRef.current = setInterval(async () => {
+            try {
+              const st = await apiClient.getCheckStatus(sessionId)
+              if (st.success) {
+                const sess = (st.data as any).session
+                const re = (st.data as any).results || []
+                setStats((s) => ({
+                  ...s,
+                  live: sess.live,
+                  dead: sess.die,
+                  unknown: sess.unknown,
+                  progress: sess.progress,
+                  successRate: sess.total > 0 ? Math.round(((sess.live + sess.die) / sess.total) * 100) : 0,
+                  liveRate: sess.total > 0 ? Math.round((sess.live / sess.total) * 100) : 0,
+                  total: sess.total
+                }))
+                setResults(prev => {
+                  const list = [...prev]
+                  const cacheNew = new Map(cardCache)
+                  re.forEach((apiResult: any) => {
+                    const cardLine = apiResult.card
+                    const idx = list.findIndex(r => r.card === cardLine && r.status === 'Checking')
+                    if (idx !== -1) {
+                      const apiStatus = String(apiResult.status || '').toLowerCase()
+                      if (apiStatus && apiStatus !== 'pending' && apiStatus !== 'checking') {
+                        const status = apiStatus === 'live' ? 'Live' : apiStatus === 'die' ? 'Die' : apiStatus === 'error' ? 'Error' : 'Unknown'
+                        list[idx] = { ...list[idx], status: status as any, response: apiResult.response || '' }
+                        cacheNew.set(cardLine, { id: list[idx].id, card: cardLine, status: status as any, response: apiResult.response || '' })
+                      }
+                    }
+                  })
+                  setCardCache(cacheNew)
+                  return list
+                })
+                if (sess.status === 'completed' || sess.pending === 0) {
+                  if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+                  setIsChecking(false)
+                }
+              }
+            } catch {}
+          }, 1500)
         }
       })
       // Realtime session start
       socketOn('checker:session:start', (_snap: any) => {
-        // Reset trạng thái timer cho phiên mới; chỉ khi nhận 'checker:fetch' mới bắt đầu đếm
-    setHasFetched(false)
-    setTimeLeft(0)
-    setIsChecking(true)
-        // Không bắt đầu countdown ở đây; đợi sự kiện fetch
+        if (stopRequestedRef.current) return
+        sessionStartRef.current = Date.now()
+        setHasFetched(false)
+        setTimeLeft(0)
+        setIsChecking(true)
       })
       // Khi ZennoPoster fetch cards → bắt đầu timeout
       socketOn('checker:fetch', (msg: any) => {
+        if (stopRequestedRef.current) return
         try {
           setHasFetched(true)
           const t = Number(msg?.timeoutSec) || timeoutSec || 120
@@ -219,19 +499,49 @@ export default function CheckerPage() {
       // Realtime session snapshot
       socketOn('checker:session:update', (snap: any) => {
         if (!snap) return
+        const total = Number(snap.total || stats.total || results.length || 0)
+        const live = Number(snap.live || 0)
+        const dead = Number(snap.die || 0)
+        const unknown = Number(snap.unknown || 0)
+        const processed = live + dead + unknown
+        const pending = typeof snap.pending === 'number' ? Math.max(0, Number(snap.pending)) : Math.max(0, total - processed)
+        const progressRaw = typeof snap.progress === 'number' ? Number(snap.progress) : (total > 0 ? Math.round((processed / total) * 100) : 0)
+        const progress = Math.max(0, Math.min(100, progressRaw))
+        const successRate = total > 0 ? Math.round(((live + dead) / total) * 100) : 0
+        const liveRate = total > 0 ? Math.round((live / total) * 100) : 0
         setStats((s) => ({
           ...s,
-          live: Number(snap.live || 0),
-          dead: Number(snap.die || 0),
-          unknown: Number(snap.unknown || 0),
-          progress: Number(snap.progress || 0)
+          live,
+          dead,
+          unknown,
+          total,
+          pending,
+          progress,
+          successRate,
+          liveRate,
         }))
         if (typeof snap.pricePerCard === 'number') setPricePerCard(snap.pricePerCard)
+        if (typeof snap.billedAmount === 'number') setSessionBilled(snap.billedAmount)
+        if (isChecking) {
+          const t = Number(timeoutSec) || 120
+          startCountdown(t)
+        }
         // Hoàn thành/stop → tắt trạng thái đang chạy
         const pendingLeft = Number(snap.pending || 0)
         if (snap.status === 'completed' || snap.stopRequested === true || pendingLeft === 0) {
           setIsChecking(false)
           stopCountdown()
+          const end = Date.now()
+          const dur = sessionStartRef.current ? Math.max(0, Math.round((end - sessionStartRef.current) / 1000)) : 0
+          setSummary({
+            total,
+            live,
+            die: dead,
+            unknown,
+            billed: typeof snap.billedAmount === 'number' ? Number(snap.billedAmount) : sessionBilled,
+            durationSec: dur,
+          })
+          setSummaryOpen(true)
         }
       })
 
@@ -240,18 +550,45 @@ export default function CheckerPage() {
         if (!msg || !msg.card) return
         const apiStatus = String(msg.status || '').toLowerCase()
         if (!apiStatus || apiStatus === 'pending' || apiStatus === 'checking') return
-        const status = apiStatus === 'live' ? 'Live' : apiStatus === 'die' ? 'Dead' : apiStatus === 'error' ? 'Error' : 'Unknown'
-        setResults(prev => {
+        const status = apiStatus === 'live' ? 'Live' : apiStatus === 'die' ? 'Die' : apiStatus === 'error' ? 'Error' : 'Unknown'
+        const applyUpdate = () => setResults(prev => {
           const list = [...prev]
-          const idx = list.findIndex(r => r.card === msg.card && r.status === 'Checking')
+          const key = String(msg.card).trim()
+          const idx = list.findIndex(r => String(r.card).trim() === key && r.status === 'Checking')
           if (idx !== -1) {
             list[idx] = { ...list[idx], status: status as any, response: msg.response || '' }
           }
           return list
         })
+        // Reset timeout on each activity
+        try { if (isChecking) { const t = Number(timeoutSec) || 120; startCountdown(t) } } catch {}
+        // If cached result: avoid double delay when server already delayed
+        if (msg.cached === true && msg.serverDelayed === true) {
+          applyUpdate()
+          removeCardsFromInput([msg.card])
+        } else if (msg.cached === true) {
+          const delay = Math.floor(Math.random() * (600 - 30 + 1) + 30) * 1000
+          setTimeout(() => { applyUpdate(); removeCardsFromInput([msg.card]) }, delay)
+        } else {
+          applyUpdate()
+          removeCardsFromInput([msg.card])
+        }
       })
     })()
   }, [user?.balance])
+
+  // Auto-stop when balance is insufficient for next card cost
+  useEffect(() => {
+    if (!isChecking) return
+    if (autoStopRef.current) return
+    if (pricePerCard > 0 && balance < pricePerCard) {
+      autoStopRef.current = true
+      stopChecking().finally(() => {
+        toast({ title: 'Insufficient Credits', description: 'Auto-stopped due to low balance', variant: 'destructive' })
+        setIsChecking(false)
+      })
+    }
+  }, [balance, pricePerCard, isChecking])
 
   // Helpers
   const startCountdown = (sec: number) => {
@@ -290,16 +627,38 @@ export default function CheckerPage() {
 
   // Actions
   const handleStart = async () => {
+    stopRequestedRef.current = false
+    sentCardsRef.current = []
+    autoStopRef.current = false
     const lines = cardsInput
       .split("\n")
-      .map((s) => s.trim())
+      .map((line) => line.trim())
       .filter(Boolean)
 
     const valid = lines.filter(validateLine)
-    if (valid.length === 0) {
-      toast({ title: t('common.error'), description: t('checker.messages.invalidFormat'), variant: "destructive" })
+    if (valid.length > 5000) {
+      toast({ title: 'Too many cards', description: 'You can submit at most 5000 cards per run. Please split your list and try again.', variant: 'destructive' })
+      setIsChecking(false)
       return
     }
+    if (valid.length === 0) {
+      toast({ title: t('common.error'), description: t('checker.messages.noCards'), variant: 'destructive' })
+      setIsChecking(false)
+      return
+    }
+
+    // Kiểm tra số dư trước khi gửi
+    try {
+      const chosen = gates.find(g => String((g as any).typeCheck) === String(selectedGate) || (g as any).id === selectedGate)
+      const tc = chosen ? String((chosen as any).typeCheck) : String(selectedGate)
+      const costPerCard = (typeof gateCostMap[tc] === 'number' && gateCostMap[tc] > 0) ? gateCostMap[tc] : (pricePerCard > 0 ? pricePerCard : 1)
+      const requiredCredits = costPerCard * valid.length
+      if (balance < requiredCredits) {
+        toast({ title: t('common.error'), description: `Insufficient balance Credits. need ${Math.ceil(requiredCredits)} credits, currently has ${Math.floor(balance)} credits`, variant: 'destructive' })
+        setIsChecking(false)
+        return
+      }
+    } catch {}
 
     // Giá theo GATE: pricePerCard * số thẻ
     const requiredCredits = valid.length * (pricePerCard || 1)
@@ -334,7 +693,7 @@ export default function CheckerPage() {
     dbCheckedCards.forEach((card: any) => {
       if (card.fullCard && card.status) {
         const status = card.status === 'live' ? 'Live' :
-                      card.status === 'die' ? 'Dead' :
+                      card.status === 'die' ? 'Die' :
                       card.status === 'error' ? 'Error' : 'Unknown'
         dbResultsMap.set(card.fullCard, {
           status,
@@ -346,6 +705,7 @@ export default function CheckerPage() {
     // Tạo initial results với cache check và DB check
     const initialResults: CheckResult[] = []
     const cardsToCheck: Card[] = []
+    const sentFullList: string[] = []
 
     valid.forEach((line, index) => {
       const cardKey = line.trim()
@@ -358,20 +718,22 @@ export default function CheckerPage() {
           ...cached,
           id: `${Date.now()}-${index}`
         })
-      } else if (dbResult && dbResult.status === 'Dead') {
-        // Nếu trong DB đã có và là Die → trả luôn, không gửi Zenno
+      } else if (dbResult && dbResult.status === 'Die') {
+        // Nếu DB đã có kết quả Die: vẫn GỬI lên backend để xử lý billing + emit cached:true (FE sẽ delay)
+        const [num, mm, yyOrYyyy, cvv] = line.split("|")
+        cardsToCheck.push({
+          cardNumber: num,
+          expiryMonth: mm.padStart(2, "0"),
+          expiryYear: yyOrYyyy,
+          cvv,
+        })
+        sentFullList.push(line)
+
+        // UI: giữ trạng thái Checking, đợi socket 'checker:card' với cached:true để hiển thị Die sau delay
         initialResults.push({
           id: `${Date.now()}-${index}`,
           card: line,
-          status: dbResult.status as any,
-          response: dbResult.response
-        })
-        // Cache lần sau
-        cardCache.set(cardKey, {
-          id: `${Date.now()}-${index}`,
-          card: line,
-          status: dbResult.status as any,
-          response: dbResult.response
+          status: "Checking"
         })
       } else {
         // Thẻ mới cần check
@@ -382,6 +744,7 @@ export default function CheckerPage() {
           expiryYear: yyOrYyyy,
           cvv,
         })
+        sentFullList.push(line)
 
         // Thêm vào results với status "Checking"
         initialResults.push({
@@ -414,6 +777,8 @@ export default function CheckerPage() {
 
       const data: any = res.data
       setSessionId(data.sessionId)
+      // Save the batch of cards actually sent for this session
+      sentCardsRef.current = sentFullList
       if (typeof data.pricePerCard === 'number' && data.pricePerCard >= 0) {
         setPricePerCard(data.pricePerCard)
       }
@@ -434,14 +799,15 @@ export default function CheckerPage() {
               const re = (st.data as any).results || []
 
             // Cập nhật results với kết quả mới từ API
+            const cardsFinished: string[] = []
             setResults(prevResults => {
               const newResults = [...prevResults]
               const newCache = new Map(cardCache)
 
               re.forEach((apiResult: any) => {
-                const cardLine = apiResult.card // Backend trả về fullCard format
+                const cardLine = String(apiResult.card || '').trim() // Backend trả về fullCard format
                 const resultIndex = newResults.findIndex(r =>
-                  r.card === cardLine && r.status === "Checking"
+                  String(r.card).trim() === cardLine && r.status === "Checking"
                 )
 
                 if (resultIndex !== -1) {
@@ -449,7 +815,7 @@ export default function CheckerPage() {
                   const apiStatus = apiResult.status?.toLowerCase()
                   if (apiStatus && apiStatus !== 'pending' && apiStatus !== 'checking') {
                     const status = apiStatus === 'live' ? 'Live' :
-                                 apiStatus === 'die' ? 'Dead' :
+                                 apiStatus === 'die' ? 'Die' :
                                  apiStatus === 'error' ? 'Error' : 'Unknown'
 
                     newResults[resultIndex] = {
@@ -466,12 +832,8 @@ export default function CheckerPage() {
                       response: apiResult.response || ''
                     })
 
-                    // Report result to /api/checkcc with LoaiDV=2 (optional, if needed)
-                    if (apiResult.cardId) {
-                      reportToCheckCC(apiResult.cardId, apiResult.status, apiResult.response).catch(err => {
-                        console.error('Failed to report to checkcc:', err)
-                      })
-                    }
+                    // Mark for input removal
+                    cardsFinished.push(cardLine)
                   }
                   // If status is pending/checking or missing, keep showing "Checking"
                 }
@@ -523,6 +885,19 @@ export default function CheckerPage() {
     if (!sessionId) return
     if (!isChecking) return
     try {
+      // Signal Zenno to pause only the cards sent in this session
+      try { 
+        const payload = { 
+          LoaiDV: 1, 
+          Device: 'WebDashboard', 
+          pauseZenno: true,
+          SessionId: sessionId,
+          Content: (sentCardsRef.current || []).map(f => ({ FullThe: f }))
+        }
+        await apiClient.post('/checkcc', payload) 
+      } catch {}
+
+      stopRequestedRef.current = true
       // Stop checking on backend
       await apiClient.stopCheck({ sessionId })
       
@@ -542,11 +917,12 @@ export default function CheckerPage() {
               response: 'Stopped by user'
             }
           }
-          return r // Keep existing results (Live/Dead/Error) unchanged
+          return r // Keep existing results (Live/Die/Error) unchanged
         })
       })
       
       setIsChecking(false)
+      setSessionId(null)
       toast({ title: 'Success', description: 'Checking stopped', variant: "default" })
     } catch (err) {
       console.error('Stop checking error:', err)
@@ -558,11 +934,26 @@ export default function CheckerPage() {
     await stopChecking()
   }
 
-  const handleClear = () => {
-    setResults([])
+  // Clear only input textarea
+  const handleClearInput = () => {
     setCardsInput("")
-    setStats({ live: 0, dead: 0, error: 0, unknown: 0, total: 0, progress: 0, successRate: 0, liveRate: 0 })
-    setCardCache(new Map()) // Clear memory cache
+    try { localStorage.setItem('checker_cards_input', '') } catch {}
+  }
+
+  // Clear only results (not allowed while checking)
+  const handleClearResults = () => {
+    if (isChecking) {
+      toast({ title: 'Đang kiểm tra', description: 'Hãy dừng Checking trước khi Clear Results.', variant: 'destructive' })
+      return
+    }
+    setResults([])
+    setStats({ live: 0, dead: 0, error: 0, unknown: 0, total: 0, pending: 0, progress: 0, successRate: 0, liveRate: 0 })
+    setCardCache(new Map())
+    try {
+      localStorage.removeItem('checker_results')
+      localStorage.removeItem('checker_stats')
+      localStorage.removeItem('checker_card_cache')
+    } catch {}
   }
 
   const handleCopy = async () => {
@@ -702,21 +1093,16 @@ export default function CheckerPage() {
                     if (valid.length === 0) {
                       needsDisable = true;
                     } else {
-                      let requiredCredits = 0;
-                      if (pricingTiers && pricingTiers.length > 0) {
-                        for (const tier of pricingTiers) {
-                          const tierMin = tier.min || 0;
-                          const tierMax = tier.max === null ? valid.length : tier.max;
-                          const tierPrice = tier.pricePerCard || 0;
-                          
-                          if (valid.length >= tierMin && valid.length <= tierMax) {
-                            requiredCredits = tierPrice * valid.length;
-                            break;
-                          }
-                        }
-                      } else {
-                        requiredCredits = pricePerCard * valid.length;
-                      }
+                      // Dùng giá gate hiện tại nếu có; fallback vào pricePerCard
+                      const costPerCard = (() => {
+                        const chosen = gates.find(g => String((g as any).typeCheck) === String(selectedGate) || (g as any).id === selectedGate);
+                        const tc = chosen ? String((chosen as any).typeCheck) : String(selectedGate);
+                        const mapped = gateCostMap[tc];
+                        if (typeof mapped === 'number' && mapped > 0) return mapped;
+                        if (typeof pricePerCard === 'number' && pricePerCard > 0) return pricePerCard;
+                        return 1;
+                      })();
+                      const requiredCredits = costPerCard * valid.length;
                       
                       if (balance < requiredCredits) {
                         needsDisable = true;
@@ -740,7 +1126,7 @@ export default function CheckerPage() {
                         )}
                         {isChecking ? t('checker.stopCheck') : t('checker.startCheck')}
                       </Button>
-                      <Button onClick={handleClear} variant="outline" size="lg" className="w-full sm:w-auto text-xs sm:text-sm">
+                      <Button onClick={handleClearInput} variant="outline" size="lg" className="w-full sm:w-auto text-xs sm:text-sm">
                         <Trash2 className="mr-2 h-4 w-4" />
                         {t('checker.clearAll')}
                       </Button>
@@ -767,7 +1153,7 @@ export default function CheckerPage() {
                   >
                     <option value="all">{t('checker.filterAll') || 'All'}</option>
                     <option value="live">{t('checker.filterLive') || 'Live'}</option>
-                    <option value="dead">{t('checker.filterDead') || 'Dead'}</option>
+                    <option value="die">{t('checker.filterDead') || 'Die'}</option>
                     <option value="unknown">{t('checker.filterUnknown') || 'Unknown'}</option>
                     <option value="error">{t('checker.filterError') || 'Error'}</option>
                     <option value="checking">Checking</option>
@@ -788,22 +1174,36 @@ export default function CheckerPage() {
               </div>
             </CardHeader>
             <CardContent>
+              <div className="flex items-center justify-between mb-2 gap-4">
+                <Input 
+                  placeholder="Search card (e.g. 4532...)"
+                  value={searchCard}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setSearchCard(e.target.value); setCurrentPage(1); }}
+                  className="max-w-xs"
+                />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    {filteredResults.length} results {totalPages > 1 && `(page ${currentPage}/${totalPages})`}
+                  </span>
+                  <Button onClick={handleClearResults} variant="outline" size="sm" disabled={isChecking}>Clear Results</Button>
+                </div>
+              </div>
               <div className="max-h-96 overflow-y-auto space-y-2">
-                {filteredResults.map((r) => (
+                {paginatedResults.map((r) => (
               <div key={r.id} className="flex items-center justify-between p-3 border rounded-lg">
                 <span className="font-mono text-sm">{r.card}</span>
                 <div className="flex items-center gap-2">
                   <Badge
                         variant={
                           r.status === "Live" ? "default" :
-                          r.status === "Dead" ? "destructive" :
+                          r.status === "Die" ? "destructive" :
                           r.status === "Error" ? "destructive" :
                           r.status === "Checking" ? "secondary" : "secondary"
                         }
                         className="flex items-center gap-1"
                       >
                         {r.status === "Live" && <CheckCircle className="h-3 w-3" />}
-                        {r.status === "Dead" && <XCircle className="h-3 w-3" />}
+                        {r.status === "Die" && <XCircle className="h-3 w-3" />}
                         {r.status === "Error" && <AlertCircle className="h-3 w-3" />}
                         {r.status === "Unknown" && <Clock className="h-3 w-3" />}
                         {r.status === "Checking" && (
@@ -829,13 +1229,36 @@ export default function CheckerPage() {
                     </div>
                   </div>
                 ))}
-                {filteredResults.length === 0 && (
+                {paginatedResults.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     <p>{t('checker.noData')}</p>
                   </div>
                 )}
               </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-4">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-muted-foreground px-2">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </UICard>
 
@@ -869,7 +1292,12 @@ export default function CheckerPage() {
             <CardContent className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">{t('checker.info.balance')}</span>
-                <span className="font-semibold">{balance.toLocaleString()}</span>
+                <span className="font-semibold flex items-center gap-2">
+                  {balance.toLocaleString()}
+                  {recentDebit > 0 && (
+                    <span className="text-red-600 text-xs font-bold animate-pulse">- {recentDebit.toFixed(0)}</span>
+                  )}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">{t('checker.info.pricePerCard')}</span>
@@ -879,6 +1307,12 @@ export default function CheckerPage() {
                 <span className="text-sm text-muted-foreground">{t('checker.info.estimatedCost')}</span>
                 <span className="font-semibold text-primary">{estimatedCost} Credits</span>
               </div>
+              {sessionId && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Billed (this session)</span>
+                  <span className="font-semibold text-red-600">- {sessionBilled.toFixed(0)} Credits</span>
+                </div>
+              )}
             </CardContent>
           </UICard>
 
@@ -925,7 +1359,7 @@ export default function CheckerPage() {
                 <div className="text-center p-3 border rounded-lg">
                   <div className="flex items-center justify-center gap-1 text-red-600 mb-1">
                     <XCircle className="h-4 w-4" />
-                    <span className="text-sm font-medium">Dead</span>
+                    <span className="text-sm font-medium">Die</span>
                   </div>
                   <div className="text-xl font-bold">{stats.dead}</div>
                 </div>

@@ -37,6 +37,7 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useToast } from '@/hooks/use-toast'
 import { apiClient } from '@/lib/api'
+import { useSocket } from '@/hooks/use-socket'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -49,7 +50,19 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { t, showLanguageSwitcher } = useI18n()
   const { toast } = useToast()
   const [credits, setCredits] = useState(0)
+  const { on, isConnected } = useSocket({ enabled: true })
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  
+  // Format credits: keep decimal but trim trailing zeros
+  const formatCredit = (value: number): string => {
+    const num = Number(value || 0)
+    // Format with max 4 decimal places, then remove trailing zeros
+    const formatted = num.toLocaleString('en-US', { 
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 4 
+    })
+    return formatted
+  }
   const [logoUrl, setLogoUrl] = useState('/logo.svg')
   const [telegramUrl, setTelegramUrl] = useState('')
   const [paymentConfig, setPaymentConfig] = useState<any>({
@@ -62,6 +75,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       setCredits(user.balance || 0)
     }
   }, [user])
+  
+  // Refresh credits periodically (fallback nếu socket không hoạt động)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkAuth()
+    }, 30000) // 30s
+    return () => clearInterval(interval)
+  }, [checkAuth])
 
   // Refresh user data on mount to get latest balance
   useEffect(() => {
@@ -127,28 +148,27 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     fetchSiteConfig()
     
     // Listen for config updates via Socket.IO
-    const handleConfigUpdate = () => {
-      if (!isMounted) return
-      fetchSiteConfig()
-    }
-    
-    if (typeof window !== 'undefined') {
-      const socket = (window as any).socket
-      if (socket) {
-        socket.on('config:updated', handleConfigUpdate)
-      }
-    }
+    const off = on('config:updated', () => { if (!isMounted) return; fetchSiteConfig() })
     
     return () => {
       isMounted = false
-      if (typeof window !== 'undefined') {
-        const socket = (window as any).socket
-        if (socket) {
-          socket.off('config:updated', handleConfigUpdate)
-        }
-      }
+      try { if (typeof off === 'function') off() } catch {}
     }
-  }, [])
+  }, [on])
+
+  // Realtime update credits from socket
+  useEffect(() => {
+    const off = on('user:balance-changed', (payload: any) => {
+      console.log('[DashboardLayout] Balance changed:', payload)
+      const bal = payload && typeof payload.balance === 'number' ? payload.balance : undefined
+      if (typeof bal === 'number') {
+        setCredits(bal)
+        // Also update auth store
+        checkAuth()
+      }
+    })
+    return () => { try { if (typeof off === 'function') off() } catch {} }
+  }, [on, checkAuth])
 
   // Navigation array with dependency on paymentConfig to trigger re-render
   const navigation = useMemo(() => {
@@ -368,7 +388,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="p-4 border-t border-gray-200 dark:border-gray-700">
             <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
               <Coins className="mr-2 h-4 w-4" />
-              <span>{credits} Credits</span>
+              <span>{formatCredit(credits)} Credits</span>
             </div>
           </div>
         </div>
@@ -412,8 +432,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               {/* Credits Display */}
               <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-300">
                 <Coins className="h-4 w-4" />
-                <span className="hidden sm:block">{credits} Credits</span>
-                <span className="sm:hidden text-xs">{credits}</span>
+                <span className="hidden sm:block">{formatCredit(credits)} Credits</span>
+                <span className="sm:hidden text-xs">{formatCredit(credits)}</span>
               </div>
 
               {/* Settings Button */}
@@ -469,11 +489,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       <span className="text-xs text-gray-500">{user?.email}</span>
                     </div>
                   </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push('/dashboard/card-history')}>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Card History
-                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {user?.role === 'admin' && (
                     <>

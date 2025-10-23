@@ -14,51 +14,74 @@ export function useSocket(options: UseSocketOptions = {}) {
   const { token, user } = useAuthStore()
   const socketRef = useRef<Socket | null>(null)
   const [connected, setConnected] = useState(false)
-  const [endpoint, setEndpoint] = useState<string | null>(process.env.NEXT_PUBLIC_SOCKET_URL || null)
+  // Endpoint (domain) and optional path for Socket.IO
+  const [endpoint, setEndpoint] = useState<string | null>(null)
+  const socketPath = (process.env.NEXT_PUBLIC_SOCKET_PATH || '/socket.io') as string
 
   // Load endpoint from public config if not set by env
   useEffect(() => {
     if (!enabled) return
-    if (endpoint) return
-    ;(async () => {
-      try {
-        const resp = await fetch('/api/config/public', { credentials: 'include' })
-        if (resp.ok) {
-          const js = await resp.json()
-          const ep = js?.data?.general?.socket_url
-          if (ep && typeof ep === 'string') setEndpoint(ep)
-          else if (typeof window !== 'undefined') setEndpoint(window.location.origin)
-        } else if (typeof window !== 'undefined') {
-          setEndpoint(window.location.origin)
-        }
-      } catch {
-        if (typeof window !== 'undefined') setEndpoint(window.location.origin)
-      }
-    })()
-  }, [enabled, endpoint])
+    
+    // In production behind reverse proxy, always use current origin
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin.replace(/\/$/, '')
+      setEndpoint(origin)
+      return
+    }
+    
+    // Fallback for SSR
+    setEndpoint('')
+  }, [enabled])
 
   // Lazy connect when endpoint available
   useEffect(() => {
-    if (!enabled || !token) return
+    if (!enabled) return
     if (!endpoint) return
 
     try {
       const s = io(endpoint, {
-        transports: ['websocket', 'polling'],
+        // Prefer polling first for better compatibility with reverse proxy
+        transports: ['polling', 'websocket'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
         withCredentials: true,
-        auth: { token, userId: user?.id },
-        query: { userId: user?.id }
+        auth: token ? { token, userId: user?.id } : {},
+        query: user?.id ? { userId: user.id } : {},
+        path: socketPath,
+        upgrade: true,
+        rememberUpgrade: true,
+        autoConnect: true
       })
 
       socketRef.current = s
-      s.on('connect', () => { setConnected(true); if (debug) console.log('[Socket] connected', s.id) })
-      s.on('disconnect', () => { setConnected(false); if (debug) console.log('[Socket] disconnected') })
+      
+      s.on('connect', () => { 
+        setConnected(true)
+        if (debug) console.log('[Socket] connected', s.id) 
+      })
+      
+      s.on('disconnect', (reason) => { 
+        setConnected(false)
+        if (debug) console.log('[Socket] disconnected:', reason) 
+      })
+      
+      s.on('connect_error', (err) => {
+        if (debug) console.warn('[Socket] connection error:', err.message)
+      })
 
-      return () => { try { s.disconnect() } catch {} }
+      return () => { 
+        try { 
+          s.removeAllListeners()
+          s.disconnect() 
+        } catch {} 
+      }
     } catch (e) {
       if (debug) console.warn('[Socket] init error:', e)
     }
-  }, [enabled, token, user?.id, debug, endpoint])
+  }, [enabled, token, user?.id, debug, endpoint, socketPath])
 
   const on = useCallback((event: string, handler: SocketEventHandler) => {
     const s = socketRef.current
@@ -75,6 +98,6 @@ export function useSocket(options: UseSocketOptions = {}) {
 
   const isConnected = useCallback(() => connected, [connected])
 
-  return { on, emit, isConnected, socket: socketRef.current }
+  return { on, emit, isConnected, socket: socketRef.current, connected }
 }
 

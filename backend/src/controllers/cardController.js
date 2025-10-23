@@ -282,25 +282,25 @@ const generateCards = async (req, res, next) => {
       });
     }
 
-    const { quantity: count, brand, binRange } = req.body;
+    const { bin, quantity, month, year } = req.body;
 
     // Generate cards
     const cards = CardGeneratorService.generateCards({
-      count,
-      brand,
-      binRange
+      bin,
+      quantity,
+      month,
+      year
     });
 
-    logger.info(`Generated ${count} cards for user ${req.user.username}`, {
+    logger.info(`Generated ${quantity} cards for user ${req.user.username}`, {
       userId: req.user.id,
-      count,
-      brand,
-      binRange
+      quantity,
+      bin
     });
 
     res.json({
       success: true,
-      message: `Đã tạo ${count} thẻ thành công`,
+      message: `Đã tạo ${cards.length} thẻ thành công`,
       data: {
         cards,
         count: cards.length
@@ -331,10 +331,10 @@ const getStats = async (req, res, next) => {
       };
     }
 
-    // Get card statistics
+    // Get card statistics (by originUserId - cards submitted by this user)
     const stats = await Card.aggregate([
       {
-        $match: { user: userId, ...dateFilter }
+        $match: { originUserId: require('mongoose').Types.ObjectId(userId), ...dateFilter }
       },
       {
         $group: {
@@ -349,7 +349,7 @@ const getStats = async (req, res, next) => {
     const transactionStats = await Transaction.aggregate([
       {
         $match: { 
-          user: userId, 
+          userId: require('mongoose').Types.ObjectId(userId), 
           type: 'card_check',
           ...dateFilter
         }

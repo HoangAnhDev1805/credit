@@ -107,12 +107,13 @@ const getDashboard = async (req, res, next) => {
     };
 
     userStats.forEach(stat => {
-      formattedUserStats[stat._id] = stat.count;
+      const status = stat._id;
+      // Map 'blocked' to 'banned' for frontend compatibility
+      const mappedStatus = status === 'blocked' ? 'banned' : status;
+      formattedUserStats[mappedStatus] = stat.count;
       formattedUserStats.total += stat.count;
       formattedUserStats.totalBalance += stat.totalBalance;
     });
-
-    // formattedCardStats 11 11 1112 111114: 11 111113 11
 
     const formattedPaymentStats = {
       total: 0,
@@ -226,6 +227,7 @@ const getUsers = async (req, res, next) => {
         email: user.email,
         role: user.role,
         status: user.status,
+        checker: Number(user.checker || 0),
         balance: user.balance,
         totalCardsSubmitted: s.submitted,
         totalLiveCards: s.live,
@@ -270,7 +272,7 @@ const updateUser = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { status, role, balance, addAmount, subtractAmount, newPassword } = req.body;
+    const { status, role, balance, addAmount, subtractAmount, newPassword, checker } = req.body;
     const passwordAlias = typeof req.body.password === 'string' ? req.body.password : undefined;
 
     const user = await User.findById(id);
@@ -281,17 +283,14 @@ const updateUser = async (req, res, next) => {
       });
     }
 
-    // Prevent admin from changing their own role/status
-    if (user._id.toString() === req.user.id && (status || role)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Không thể thay đổi vai trò hoặc trạng thái của chính mình'
-      });
-    }
+    // Cho phép admin thay đổi vai trò/trạng thái của chính mình theo yêu cầu
 
     // Update fields
     if (status) user.status = status;
     if (role) user.role = role;
+    if (checker !== undefined && checker !== null && (checker === 0 || checker === 1 || checker === '0' || checker === '1')) {
+      user.checker = Number(checker);
+    }
     
     // Handle balance updates
     const oldBalance = user.balance;
@@ -357,7 +356,8 @@ const updateUser = async (req, res, next) => {
           email: user.email,
           role: user.role,
           status: user.status,
-          balance: user.balance
+          balance: user.balance,
+          checker: Number(user.checker || 0)
         }
       }
     });
@@ -701,10 +701,196 @@ const deletePaymentMethod = async (req, res, next) => {
   }
 };
 
+// Rate Limit Management
+exports.getRateLimitConfig = async (req, res) => {
+  try {
+    const { loadRateLimitsFromDB, rateLimitCache } = require('../middleware/security');
+    
+    // Force reload from DB
+    await loadRateLimitsFromDB();
+    
+    // Get configs from database
+    const configs = await SiteConfig.find({ category: 'ratelimit' }).lean();
+    const configMap = {};
+    configs.forEach(c => { configMap[c.key] = c; });
+    
+    res.json({
+      success: true,
+      data: {
+        configs: configMap,
+        currentCache: rateLimitCache
+      }
+    });
+  } catch (error) {
+    logger.error('Get rate limit config error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get rate limit configuration',
+      error: error.message
+    });
+  }
+};
+
+exports.updateRateLimitConfig = async (req, res) => {
+  try {
+    const { loadRateLimitsFromDB } = require('../middleware/security');
+    const updates = req.body;
+    
+    // Update each config
+    const updatePromises = Object.keys(updates).map(key => 
+      SiteConfig.findOneAndUpdate(
+        { key },
+        { $set: { value: updates[key] } },
+        { new: true, upsert: false }
+      )
+    );
+    
+    await Promise.all(updatePromises);
+    
+    // Force reload cache
+    await loadRateLimitsFromDB();
+    
+    // Emit to frontend via Socket.IO
+    const io = req.app && req.app.get ? req.app.get('io') : null;
+    if (io) {
+      io.emit('ratelimit:config:updated', { timestamp: new Date() });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Rate limit configuration updated successfully'
+    });
+  } catch (error) {
+    logger.error('Update rate limit config error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update rate limit configuration',
+      error: error.message
+    });
+  }
+};
+
+// Realtime request monitoring (simplified - actual implementation would track requests)
+let requestStats = {
+  total: 0,
+  byEndpoint: {},
+  byIP: {},
+  recent: []
+};
+
+// Middleware to track requests
+exports.trackRequest = (req, res, next) => {
+  const startTime = Date.now();
+  const originalSend = res.send;
+  
+  res.send = function(data) {
+    const duration = Date.now() - startTime;
+    const endpoint = req.originalUrl || req.url;
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    const method = req.method;
+    const statusCode = res.statusCode;
+    
+    // Update stats
+    requestStats.total++;
+    requestStats.byEndpoint[endpoint] = (requestStats.byEndpoint[endpoint] || 0) + 1;
+    requestStats.byIP[ip] = (requestStats.byIP[ip] || 0) + 1;
+    
+    // Add to recent (keep last 100)
+    requestStats.recent.unshift({
+      timestamp: new Date(),
+      method,
+      endpoint,
+      ip,
+      statusCode,
+      duration
+    });
+    if (requestStats.recent.length > 100) {
+      requestStats.recent = requestStats.recent.slice(0, 100);
+    }
+    
+    // Emit to admin via Socket.IO
+    const io = req.app && req.app.get ? req.app.get('io') : null;
+    if (io) {
+      io.emit('admin:request:stats', {
+        total: requestStats.total,
+        recentCount: requestStats.recent.length,
+        topEndpoints: Object.entries(requestStats.byEndpoint)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([endpoint, count]) => ({ endpoint, count })),
+        topIPs: Object.entries(requestStats.byIP)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([ip, count]) => ({ ip, count }))
+      });
+    }
+    
+    return originalSend.call(this, data);
+  };
+  
+  next();
+};
+
+exports.getRequestStats = async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        total: requestStats.total,
+        recentCount: requestStats.recent.length,
+        topEndpoints: Object.entries(requestStats.byEndpoint)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([endpoint, count]) => ({ endpoint, count })),
+        topIPs: Object.entries(requestStats.byIP)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([ip, count]) => ({ ip, count })),
+        recent: requestStats.recent.slice(0, 50) // Last 50 requests
+      }
+    });
+  } catch (error) {
+    logger.error('Get request stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get request statistics',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getDashboard,
   getUsers,
   createUser,
+  // Checker metrics: queue sizes and recent activity
+  getCheckerMetrics: async (req, res) => {
+    try {
+      const now = new Date();
+      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+      // Aggregate counts by status and typeCheck
+      const byStatusType = await Card.aggregate([
+        { $group: { _id: { status: '$status', typeCheck: '$typeCheck' }, count: { $sum: 1 } } },
+        { $project: { _id: 0, status: '$_id.status', typeCheck: '$_id.typeCheck', count: 1 } }
+      ]);
+      // Current queue sizes
+      const [pending, checking, unknown, live, die] = await Promise.all([
+        Card.countDocuments({ status: 'pending' }),
+        Card.countDocuments({ status: 'checking' }),
+        Card.countDocuments({ status: 'unknown' }),
+        Card.countDocuments({ status: 'live' }),
+        Card.countDocuments({ status: 'die' })
+      ]);
+      // Recent fetch rate (cards moved to checking recently)
+      const recentFetch = await Card.countDocuments({ status: 'checking', lastCheckAt: { $gte: oneMinuteAgo } });
+      // Recent update rate (cards updated to result recently)
+      const recentUpdate = await Card.countDocuments({ zennoposter: 1, updatedAt: { $gte: oneMinuteAgo } });
+      res.json({ success: true, data: { byStatusType, queue: { pending, checking, unknown, live, die }, tps: { fetchPerMin: recentFetch, updatePerMin: recentUpdate }, ts: now.toISOString() } });
+    } catch (error) {
+      logger.error('Get checker metrics error:', error);
+      res.status(500).json({ success: false, message: 'Failed to get checker metrics', error: error.message });
+    }
+  },
   // Device stats: per-device daily and total counts
   getDeviceStats: async (req, res) => {
     try {
@@ -857,6 +1043,31 @@ module.exports = {
     } catch (error) {
       logger.error('Bulk delete cards error:', error);
       res.status(500).json({ success: false, message: 'Failed to delete cards', error: error.message });
+    }
+  },
+  deleteCardsByStatus: async (req, res, next) => {
+    try {
+      const { status } = req.body;
+      if (!status) {
+        return res.status(400).json({ success: false, message: 'Thiếu trạng thái cần xóa' });
+      }
+      const validStatuses = ['live', 'die', 'unknown', 'checking'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ success: false, message: 'Trạng thái không hợp lệ' });
+      }
+      
+      // Special case: 'checking' includes both 'checking' and 'pending' status
+      let deleteQuery = { status };
+      if (status === 'checking') {
+        deleteQuery = { status: { $in: ['checking', 'pending'] } };
+      }
+      
+      const result = await Card.deleteMany(deleteQuery);
+      logger.info(`Admin deleted all cards with status: ${status}, count: ${result.deletedCount}`, { userId: req.user.id });
+      res.json({ success: true, message: `Đã xóa tất cả thẻ ${status}`, data: { deletedCount: result.deletedCount || 0 } });
+    } catch (error) {
+      logger.error('Delete cards by status error:', error);
+      res.status(500).json({ success: false, message: 'Failed to delete cards by status', error: error.message });
     }
   },
   getPaymentRequests,
@@ -1232,6 +1443,12 @@ module.exports = {
       logger.error('Update Payment config error:', error);
       res.status(500).json({ success: false, message: 'Failed to update Payment configuration', error: error.message });
     }
-  }
+  },
+  
+  // Rate Limit endpoints
+  getRateLimitConfig: exports.getRateLimitConfig,
+  updateRateLimitConfig: exports.updateRateLimitConfig,
+  getRequestStats: exports.getRequestStats,
+  trackRequest: exports.trackRequest
 
 };

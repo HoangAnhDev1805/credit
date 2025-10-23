@@ -5,6 +5,35 @@ const Transaction = require('../models/Transaction');
 const CheckSession = require('../models/CheckSession');
 const logger = require('../config/logger');
 const DeviceStat = require('../models/DeviceStat');
+const RedisCache = require('../services/RedisCache');
+
+// Debounce map for session:update events
+const sessionDebounceTimers = new Map();
+const sessionDebouncePayloads = new Map();
+
+function emitSessionUpdateDebounced(io, userRoom, sid, payload, delayMs = 200) {
+  try {
+    const key = String(sid || '');
+    const merged = { ...(sessionDebouncePayloads.get(key) || {}), ...(payload || {}) };
+    sessionDebouncePayloads.set(key, merged);
+    if (sessionDebounceTimers.has(key)) {
+      clearTimeout(sessionDebounceTimers.get(key));
+    }
+    const t = setTimeout(() => {
+      try {
+        const p = sessionDebouncePayloads.get(key) || payload || {};
+        if (io) {
+          if (userRoom) io.to(String(userRoom)).emit('checker:session:update', p);
+          io.to(`session:${key}`).emit('checker:session:update', p);
+        }
+      } finally {
+        sessionDebounceTimers.delete(key);
+        sessionDebouncePayloads.delete(key);
+      }
+    }, delayMs);
+    sessionDebounceTimers.set(key, t);
+  } catch (_) {}
+}
 
 // Helper functions
 const normalizeBody = (req) => {
@@ -77,6 +106,16 @@ exports.checkcc = async (req, res) => {
       });
     }
 
+    // Enforce Checker permission (must be enabled by admin)
+    if (Number(req.user.checker) !== 1) {
+      return res.json({
+        ErrorId: 1,
+        Title: 'forbidden',
+        Message: 'Checker disabled',
+        Content: ''
+      });
+    }
+
     if (p.LoaiDV === 1) {
       // Fetch random cards for checking
       return await handleFetchCards(req, res, p);
@@ -105,6 +144,41 @@ exports.checkcc = async (req, res) => {
 // Handle LoaiDV=1: Fetch random cards
 async function handleFetchCards(req, res, p) {
   try {
+    // Handle pause request explicitly to let ZennoPoster stop tools gracefully
+    const body = { ...req.query, ...req.body, ...req.headers };
+    const pauseFlag = String(body.pausezenno || body.PauseZenno || body['x-pause-zenno'] || '').toLowerCase();
+    const shouldPause = pauseFlag === 'true' || pauseFlag === '1';
+    if (shouldPause) {
+      try {
+        const io = req.app && req.app.get ? req.app.get('io') : null;
+        if (io && req.user && req.user.id) {
+          io.to(String(req.user.id)).emit('checker:session:update', { stopRequested: true, status: 'stopped' });
+        }
+      } catch (_) {}
+      // If SessionId and Content provided, target only those cards
+      const SessionId = body.SessionId || body.sessionId || body['x-session-id'] || '';
+      let contentList = [];
+      try {
+        const raw = body.Content || body.content || [];
+        const arr = Array.isArray(raw) ? raw : [];
+        contentList = arr.map(it => ({
+          FullThe: String(it?.FullThe || it?.fullThe || it?.Card || it?.card || '').trim()
+        })).filter(it => it.FullThe);
+      } catch {}
+      if (SessionId && contentList.length) {
+        try {
+          const ids = await Card.find({ sessionId: SessionId, fullCard: { $in: contentList.map(c => c.FullThe) }, status: { $in: ['pending','checking'] } }).select('_id').lean();
+          const idList = ids.map(i => i._id);
+          if (idList.length) {
+            await Card.updateMany({ _id: { $in: idList } }, { $set: { status: 'unknown', errorMessage: 'Stopped by user', zennoposter: 0, checkedAt: new Date() } });
+          }
+          return res.json({ ErrorId: 1, Title: 'pause', Message: 'Pause requested', Content: idList.map(i => ({ Id: String(i) })) });
+        } catch (_) {
+          return res.json({ ErrorId: 1, Title: 'pause', Message: 'Pause requested', Content: [] });
+        }
+      }
+      return res.json({ ErrorId: 1, Title: 'pause', Message: 'Pause requested', Content: '' });
+    }
     // Log incoming request parameters for ZennoPoster debugging
     console.log('\n========== /api/checkcc REQUEST (LoaiDV=1) ==========');
     console.log('Token:', req.headers.authorization ? 'Bearer ***' : 'None');
@@ -129,6 +203,19 @@ async function handleFetchCards(req, res, p) {
     let amount = Number.isFinite(p.Amount) && p.Amount > 0 ? p.Amount : defaultBatch;
     amount = Math.min(Math.max(amount, minAmount), maxAmount);
     const typeCheck = p.TypeCheck === 1 ? 1 : 2; // default 2 (charge)
+
+    // Backpressure: limit concurrent checking per typeCheck
+    try {
+      const maxConcurrent = Number(await SiteConfig.getByKey('checker_max_concurrent_checking')) || 1000;
+      if (maxConcurrent > 0) {
+        const currentChecking = await Card.countDocuments({ status: 'checking', zennoposter: { $in: [0, null] }, typeCheck });
+        const capacity = Math.max(0, maxConcurrent - currentChecking);
+        if (capacity <= 0) {
+          return res.json({ ErrorId: 1, Title: 'card store not found', Message: 'Capacity reached', PauseZenno: true, Content: [] });
+        }
+        if (amount > capacity) amount = capacity;
+      }
+    } catch (_) {}
 
     // Helper to create or fetch a test card safely (handles duplicates)
     async function createOrGetTestCard(uId, num, mm, yy, cvv, tCheck) {
@@ -236,13 +323,72 @@ async function handleFetchCards(req, res, p) {
       { $match: match }, 
       { $sample: { size: sampleSize } }
     ];
-    const cards = await Card.find({
+    // Optimized bulk fetch with atomic update
+    // Strategy: Over-fetch candidates, then atomic bulk update to handle concurrent requests
+    const timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
+    const deadline = new Date(Date.now() + timeoutSec * 1000);
+    const now = new Date();
+    
+    // Step 1: Find candidate cards (over-fetch 3x to handle concurrency)
+    const candidateCards = await Card.find({
+      userId: new mongoose.Types.ObjectId(systemUserId),
+      originUserId: { $ne: null },
+      sessionId: { $ne: null },
+      zennoposter: { $in: [0, null] },
       status: { $in: ['pending', 'unknown'] },
       typeCheck
     })
-      .sort({ createdAt: 1 })
-      .limit(amount);
-
+      .sort({ sessionId: 1, createdAt: 1 }) // FIFO per session
+      .limit(amount * 3)
+      .select('_id')
+      .lean();
+    
+    let cards = [];
+    
+    if (candidateCards.length > 0) {
+      const candidateIds = candidateCards.map(c => c._id);
+      
+      // Step 2: Atomic bulk update WITHOUT checkDeadlineAt (set it later only for fetched cards)
+      const updateResult = await Card.updateMany(
+        {
+          _id: { $in: candidateIds },
+          zennoposter: { $in: [0, null] },
+          status: { $in: ['pending', 'unknown'] } // Double-check status
+        },
+        {
+          $set: { 
+            status: 'checking', 
+            lastCheckAt: now, 
+            zennoposter: 0
+          },
+          $inc: { checkAttempts: 1 }
+        }
+      );
+      
+      // Step 3: Fetch actually updated cards (only amount cards)
+      cards = await Card.find({
+        _id: { $in: candidateIds },
+        status: 'checking',
+        lastCheckAt: { $gte: new Date(now.getTime() - 1000) } // Updated within 1s
+      })
+        .limit(amount)
+        .lean();
+      
+      // Step 4: Set checkDeadlineAt ONLY for cards that are actually being fetched
+      if (cards.length > 0) {
+        const fetchedIds = cards.map(c => c._id);
+        await Card.updateMany(
+          { _id: { $in: fetchedIds } },
+          { $set: { checkDeadlineAt: deadline } }
+        );
+        
+        // Update cards array with deadline for response
+        cards.forEach(card => {
+          card.checkDeadlineAt = deadline;
+        });
+      }
+    }
+    
     if (cards.length === 0) {
       // If manual card fields are provided, create a temporary test card for this user to allow API testing
       const body = { ...req.query, ...req.body };
@@ -268,30 +414,31 @@ async function handleFetchCards(req, res, p) {
         }
       }
 
+      // Hết thẻ: trả về thông điệp chuẩn để Zenno tạm dừng
       return res.json({ 
         ErrorId: 1, 
-        Title: 'error', 
-        Message: 'Out of stock', 
-        Content: [],
+        Title: 'card store not found', 
+        Message: 'No cards available to fetch', 
         PauseZenno: true,
-        pausezenno: true
+        Content: []
       });
     }
-
-    // Mark cards as "checking" and set per-card deadline
-    const ids = cards.map(c => c._id);
-    const timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
-    const deadline = new Date(Date.now() + timeoutSec * 1000);
-    await Card.updateMany({ _id: { $in: ids } }, {
-      $set: { status: 'checking', lastCheckAt: new Date(), checkDeadlineAt: deadline },
-      $inc: { checkAttempts: 1 }
-    });
 
     // Notify frontend (only now start timeout countdown)
     try {
       const io = req.app && req.app.get ? req.app.get('io') : null;
-      if (io && req.user && req.user.id) {
-        io.to(String(req.user.id)).emit('checker:fetch', { timeoutSec, count: cards.length });
+      if (io) {
+        // Emit to all origin users of these cards so their dashboards start countdown
+        const originIds = Array.from(new Set(cards.map(c => String(c.originUserId || '')))).filter(Boolean);
+        for (const oid of originIds) {
+          io.to(oid).emit('checker:fetch', { timeoutSec, count: cards.length });
+          io.to(oid).emit('session:update', { timeoutSec, count: cards.length });
+        }
+        // Optionally also notify the Zenno user fetching
+        if (req.user && req.user.id) {
+          io.to(String(req.user.id)).emit('checker:fetch', { timeoutSec, count: cards.length });
+          io.to(String(req.user.id)).emit('session:update', { timeoutSec, count: cards.length });
+        }
       }
     } catch (_) {}
 
@@ -364,13 +511,20 @@ async function handleUpdateStatus(req, res, p) {
       const rawType = item?.Type !== undefined ? Number(item.Type) : (item?.type !== undefined ? Number(item.type) : undefined);
       const rawTypeCheck = item?.TypeCheck !== undefined ? Number(item.TypeCheck) : undefined;
 
+      if (newStatus === 'unknown') {
+        try {
+          await Card.updateOne({ _id: id }, { $set: { lastCheckAt: new Date(), errorMessage: msgVal || '' } });
+        } catch (_) {}
+        return { id: String(id || ''), ok: true };
+      }
+
       const update = {
         status: newStatus,
         errorMessage: msgVal || '',
         lastCheckAt: new Date(),
         zennoposter: 1
       };
-      if (['live','die','unknown'].includes(String(newStatus))) update.checkedAt = new Date();
+      if (['live','die'].includes(String(newStatus))) update.checkedAt = new Date();
       if (fromVal !== undefined) update.checkSource = ['unknown','google','wm','zenno','777'][Number(fromVal)] || 'unknown';
       if (/^\d{6}$/.test(rawBin)) update.bin = rawBin;
       const allowedBrands = new Set(['visa','mastercard','amex','discover','jcb','diners','unknown']);
@@ -382,8 +536,29 @@ async function handleUpdateStatus(req, res, p) {
       if (rawType === 1 || rawType === 2) update.typeCheck = rawType;
       if (rawTypeCheck === 1 || rawTypeCheck === 2) update.typeCheck = rawTypeCheck;
 
-      const card = await Card.findByIdAndUpdate(id, { $set: update }, { new: true });
+      let card = await Card.findByIdAndUpdate(id, { $set: update }, { new: true });
+      if (!card) {
+        try {
+          const full = String(item?.FullThe || item?.fullThe || item?.Card || item?.card || '').trim();
+          if (full) {
+            card = await Card.findOneAndUpdate({ fullCard: full }, { $set: update }, { new: true });
+          }
+        } catch (_) {}
+      }
       if (!card) return { id: String(id), ok: false, message: 'Card not found' };
+
+      // Cache DIE cards in Redis for fast lookup
+      if (newStatus === 'die' && card.fullCard && card.typeCheck) {
+        try {
+          await RedisCache.set(card.fullCard, String(card.typeCheck), {
+            status: 'die',
+            response: msgVal || 'Declined',
+            checkedAt: new Date().toISOString()
+          });
+        } catch (err) {
+          logger.warn('Redis cache set failed (non-critical):', err.message);
+        }
+      }
 
       // Bump device stat (per successful status update) and emit realtime to admin
       try {
@@ -398,27 +573,72 @@ async function handleUpdateStatus(req, res, p) {
       // Billing and session updates (best effort)
       try {
         const finished = ['live','die'].includes(String(newStatus));
-        if (finished && card.originUserId && !card.billed) {
-          // Determine credit cost by gate
+        if (finished && card.originUserId) {
+          // Determine credit cost priority: session.pricePerCard > Gate.creditCost > SiteConfig.default
           const Gate = require('../models/Gate');
           const tc = Number(card.typeCheck ?? rawTypeCheck ?? rawType ?? p.TypeCheck ?? item?.TypeCheck);
-          let priceToCharge = 1;
+          let priceToCharge = 0;
+          let sessionPrice = 0;
           try {
-            const g = await Gate.getByTypeCheck(Number(tc));
-            if (g && typeof g.creditCost === 'number') priceToCharge = Math.max(0, Number(g.creditCost));
+            if (card.sessionId) {
+              const sess = await CheckSession.findOne({ sessionId: card.sessionId }).lean();
+              if (sess && typeof sess.pricePerCard === 'number') sessionPrice = Math.max(0, Number(sess.pricePerCard));
+            }
+          } catch {}
+          if (!sessionPrice || sessionPrice <= 0) {
+            try {
+              const g = await Gate.getByTypeCheck(Number(tc));
+              if (g && typeof g.creditCost === 'number') sessionPrice = Math.max(0, Number(g.creditCost));
+            } catch {}
+          }
+          if (!sessionPrice || sessionPrice <= 0) {
+            try {
+              const def = await SiteConfig.getByKey('default_price_per_card');
+              sessionPrice = Math.max(0, Number(def || 0));
+            } catch {}
+          }
+          priceToCharge = sessionPrice;
+
+          // Per-session flags to avoid double count/bill between flows
+          let shouldInc = false;
+          let shouldBill = false;
+          try {
+            const r1 = await Card.updateOne(
+              { _id: card._id, sessionId: card.sessionId, sessionCounted: { $ne: true } },
+              { $set: { sessionCounted: true } }
+            );
+            shouldInc = (r1 && (r1.modifiedCount === 1 || r1.nModified === 1));
+          } catch {}
+          try {
+            const r2 = await Card.updateOne(
+              { _id: card._id, sessionId: card.sessionId, billedInSession: { $ne: true } },
+              { $set: { billedInSession: true, billAmount: priceToCharge } }
+            );
+            shouldBill = (r2 && (r2.modifiedCount === 1 || r2.nModified === 1));
           } catch {}
 
-          await Card.updateOne({ _id: card._id }, { $set: { billed: true, billAmount: priceToCharge } });
-          const User = require('../models/User');
-          await User.updateOne({ _id: card.originUserId }, { $inc: { balance: -priceToCharge } });
-          const Transaction = require('../models/Transaction');
-          await Transaction.createTransaction({
-            userId: card.originUserId,
-            type: 'card_check',
-            amount: -priceToCharge,
-            description: `Check card ${card.cardNumber ? card.cardNumber.slice(0,6)+'...' : 'unknown'}`,
-            metadata: { cardId: String(card._id), sessionId: card.sessionId, typeCheck: tc }
-          });
+          if (shouldBill && priceToCharge > 0) {
+            const User = require('../models/User');
+            await User.updateOne({ _id: card.originUserId }, { $inc: { balance: -priceToCharge } });
+            const Transaction = require('../models/Transaction');
+            await Transaction.createTransaction({
+              userId: card.originUserId,
+              type: 'card_check',
+              amount: -priceToCharge,
+              description: `Charge for card (session ${String(card.sessionId||'')})`,
+              relatedId: card._id,
+              relatedModel: 'Card',
+              metadata: { cardId: String(card._id), sessionId: card.sessionId, typeCheck: tc, pricePerCard: priceToCharge }
+            });
+          }
+          // Notify user balance changed with actual value
+          try {
+            if (io) {
+              const User = require('../models/User');
+              const udoc = await User.findById(card.originUserId).select('balance').lean();
+              io.to(String(card.originUserId)).emit('user:balance-changed', { balance: udoc ? udoc.balance : undefined });
+            }
+          } catch (_) {}
         }
         // Emit realtime update (admin/cards & dashboards)
         try {
@@ -430,8 +650,65 @@ async function handleUpdateStatus(req, res, p) {
               originUserId: card.originUserId ? String(card.originUserId) : null,
               sessionId: card.sessionId || null
             });
+            // Also push to the owner dashboard in realtime
+            if (card.originUserId) {
+              io.to(String(card.originUserId)).emit('checker:card', {
+                sessionId: card.sessionId || null,
+                cardId: String(card._id),
+                card: card.fullCard,
+                status: String(card.status),
+                response: card.errorMessage || ''
+              });
+            }
           }
         } catch (_) {}
+
+        // Recompute and emit session snapshot so FE counters/billed update realtime
+        try {
+          if (card.sessionId && io && card.originUserId) {
+            const sid = String(card.sessionId);
+            const ownerRoom = String(card.originUserId);
+            const counts = await Card.aggregate([
+              { $match: { sessionId: card.sessionId, originUserId: card.originUserId } },
+              { $group: { _id: '$status', c: { $sum: 1 } } }
+            ]);
+            const map = new Map(counts.map(it => [String(it._id || 'unknown'), Number(it.c || 0)]));
+            const live = Number(map.get('live') || 0);
+            const die = Number(map.get('die') || 0);
+            const unknown = Number(map.get('unknown') || 0);
+            const error = Number(map.get('error') || 0);
+            const checking = Number(map.get('checking') || 0) + Number(map.get('pending') || 0);
+            const processed = live + die + unknown + error;
+
+            // billedAmount from cards in this session
+            const billedAgg = await Card.aggregate([
+              { $match: { sessionId: card.sessionId, originUserId: card.originUserId, billedInSession: true } },
+              { $group: { _id: null, sum: { $sum: { $ifNull: ['$billAmount', 0] } } } }
+            ]);
+            const billedAmount = Number((billedAgg[0] && billedAgg[0].sum) || 0);
+
+            // Read pricePerCard from session if exists
+            let pricePerCard = undefined;
+            try {
+              const sess = await CheckSession.findById(card.sessionId).lean();
+              if (sess && typeof sess.pricePerCard === 'number') pricePerCard = sess.pricePerCard;
+            } catch (_) {}
+
+            emitSessionUpdateDebounced(io, ownerRoom, sid, {
+              sessionId: sid,
+              live,
+              die,
+              unknown,
+              error,
+              pending: checking,
+              processed,
+              total: processed + checking,
+              billedAmount,
+              pricePerCard,
+              progress: (processed + checking) > 0 ? Math.round((processed / (processed + checking)) * 100) : 0
+            });
+          }
+        } catch (e) { logger.warn('Emit session snapshot failed:', e?.message); }
       } catch (e) {
         logger.error('Billing/update session error (bulk item):', e);
       }
@@ -441,10 +718,12 @@ async function handleUpdateStatus(req, res, p) {
 
     // Batch mode: Content/Results array
     const body = { ...req.query, ...req.body };
-    const items = Array.isArray(body.Content) ? body.Content : (Array.isArray(body.Results) ? body.Results : null);
-    if (Array.isArray(items) && items.length > 0) {
+    const itemsArr = Array.isArray(body.items) ? body.items
+      : (Array.isArray(body.Content) ? body.Content
+      : (Array.isArray(body.Results) ? body.Results : null));
+    if (Array.isArray(itemsArr) && itemsArr.length > 0) {
       const results = [];
-      for (const it of items) {
+      for (const it of itemsArr) {
         const merged = { ...p, ...it };
         const r = await processOne(merged);
         results.push(r);
@@ -458,13 +737,32 @@ async function handleUpdateStatus(req, res, p) {
   } catch (err) {
     logger.error('Update status error:', err);
     return res.json({
-      ErrorId: 0,
+      ErrorId: 1,
       Title: 'error',
       Message: 'Failed to update card status',
       Content: ''
     });
   }
 }
+
+// Evict cards for a session (used by Stop semantics)
+exports.evict = async (req, res) => {
+  try {
+    const { sessionId, userId } = { ...req.query, ...req.body };
+    if (!sessionId) return res.json({ ErrorId: 1, Title: 'error', Message: 'sessionId required', Content: '' });
+    // Only evict cards that are pending/checking/unknown and not yet posted by Zenno
+    const match = { sessionId, zennoposter: { $ne: 1 }, status: { $in: ['pending','checking','unknown'] } };
+    if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
+      match.originUserId = new mongoose.Types.ObjectId(String(userId));
+    }
+    const r = await Card.updateMany(match, { $set: { status: 'unknown', errorMessage: 'Stopped by user', zennoposter: 0, lastCheckAt: new Date() } });
+    const removed = r?.modifiedCount ?? r?.nModified ?? 0;
+    return res.json({ ErrorId: 1, Title: 'card store not found', Message: 'Evicted pending cards', PauseZenno: true, Content: { removed } });
+  } catch (err) {
+    logger.error('Evict error:', err);
+    return res.json({ ErrorId: 1, Title: 'error', Message: 'Failed to evict', Content: '' });
+  }
+};
 
 // Handle LoaiDV=2 from frontend: Receive result from external sender
 exports.receiveResult = async (req, res) => {
@@ -502,23 +800,25 @@ exports.receiveResult = async (req, res) => {
 
     logger.info(`Received result from user ${req.user.id}:`, parsedResult);
 
-    // Save to CheckSession or similar for tracking
-    const checkSession = new CheckSession({
+    // Save to CheckReceiverLog for debugging (TTL 7 days)
+    const CheckReceiverLog = require('../models/CheckReceiverLog');
+    const log = await CheckReceiverLog.create({
       userId: req.user.id,
-      type: 'receive_result',
       loaiDV: 2,
       payload: parsedResult,
-      receivedAt: new Date()
+      headers: {
+        'user-agent': req.get('user-agent'),
+        'x-forwarded-for': req.get('x-forwarded-for')
+      },
+      ip: req.ip
     });
-    
-    await checkSession.save();
 
     return res.json({ 
       success: true, 
       message: 'Result received and logged', 
       data: {
-        sessionId: checkSession._id,
-        receivedAt: checkSession.receivedAt
+        logId: log._id,
+        receivedAt: log.createdAt
       }
     });
   } catch (err) {
