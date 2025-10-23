@@ -258,15 +258,23 @@ const getHistory = async (req, res, next) => {
     const checked = stats.live + stats.die;
     stats.successRate = checked > 0 ? Math.round((stats.live / checked) * 100) : 0;
 
-    // Format response
+    // Format response with full card details for BIN enrichment
     const formattedCards = cards.map(card => ({
       id: card._id,
-      // prefer masked or full when available
-      cardNumber: card.maskedCardNumber || card.fullCard || card.cardNumber,
+      fullCard: card.fullCard,
+      cardNumber: card.cardNumber,
+      expiryMonth: card.expiryMonth,
+      expiryYear: card.expiryYear,
+      cvv: card.cvv,
+      maskedCardNumber: card.maskedCardNumber,
       brand: card.brand,
       bin: card.bin,
       status: card.status === 'die' ? 'dead' : (card.status || 'unknown'),
-      checkType: card.typeCheck,
+      typeCheck: card.typeCheck,
+      level: card.level,
+      bank: card.bank,
+      country: card.country,
+      errorMessage: card.errorMessage,
       response: card.response || card.errorMessage,
       checkedAt: card.checkedAt,
       createdAt: card.createdAt

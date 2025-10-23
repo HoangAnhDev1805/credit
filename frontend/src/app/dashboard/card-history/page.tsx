@@ -108,44 +108,38 @@ export default function CardHistoryPage() {
                              (c.fullCard || '').toLowerCase().includes(search.toLowerCase()))
         : list
       setItems(filtered)
-      setTotal(data?.pagination?.total || filtered.length)
       
-      // Calculate stats from current page items (filtered)
-      console.log('[CardHistory] Calculating stats from filtered items:', filtered.length)
-      const pageTotal = filtered.length
-      const pageLive = filtered.filter(c => (c.status || '').toLowerCase() === 'live').length
-      const pageDead = filtered.filter(c => {
-        const s = (c.status || '').toLowerCase()
-        return s === 'die' || s === 'dead'
-      }).length
-      const pagePending = filtered.filter(c => {
-        const s = (c.status || '').toLowerCase()
-        return s === 'pending' || s === 'checking'
-      }).length
-      const pageUnknown = filtered.filter(c => (c.status || '').toLowerCase() === 'unknown').length
-      const pageError = filtered.filter(c => (c.status || '').toLowerCase() === 'error').length
-      const checked = pageLive + pageDead
-      const pageSuccessRate = checked > 0 ? Math.round((pageLive / checked) * 100) : 0
+      // Use total from pagination (database total with filters)
+      const dbTotal = data?.pagination?.total || filtered.length
+      setTotal(dbTotal)
       
-      console.log('[CardHistory] Calculated stats:', {
-        total: pageTotal,
-        live: pageLive,
-        dead: pageDead,
-        pending: pagePending,
-        unknown: pageUnknown,
-        error: pageError,
-        successRate: pageSuccessRate
-      })
-      
-      setStats({
-        total: pageTotal,
-        live: pageLive,
-        dead: pageDead,
-        unknown: pageUnknown,
-        pending: pagePending,
-        error: pageError,
-        successRate: pageSuccessRate
-      })
+      // Get stats from API (total database stats with filters applied)
+      if (data?.stats) {
+        console.log('[CardHistory] Using stats from API:', data.stats)
+        const apiStats = data.stats
+        
+        setStats({
+          total: apiStats.total || dbTotal,
+          live: apiStats.live || 0,
+          dead: apiStats.dead || 0,
+          unknown: apiStats.unknown || 0,
+          pending: apiStats.pending || 0,
+          error: apiStats.error || 0,
+          successRate: apiStats.successRate || 0
+        })
+      } else {
+        // Fallback if API doesn't return stats
+        console.warn('[CardHistory] API missing stats object')
+        setStats({
+          total: dbTotal,
+          live: 0,
+          dead: 0,
+          unknown: 0,
+          pending: 0,
+          error: 0,
+          successRate: 0
+        })
+      }
     } catch (e: any) {
       console.error('Fetch history failed:', e)
       toast({
@@ -166,11 +160,11 @@ export default function CardHistoryPage() {
         const enriched = binLoaded ? enrichCardWithBin(it) : it
         
         const fullCard = enriched.fullCard || `${enriched.cardNumber}|${enriched.expiryMonth}|${enriched.expiryYear}|${enriched.cvv}`
-        const status = `STATUS: ${(enriched.status || 'UNKNOWN').toUpperCase()}`
-        const typeCheck = enriched.typeCheck ? `TYPE:  ${(enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
-        const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
-        const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: UNKNOWN'
-        const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+        const status = `STATUS: ${(enriched.status || '').toUpperCase()}`
+        const typeCheck = enriched.typeCheck ? `TYPE:  ${(enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : '').padEnd(10)}` : 'TYPE:  ' + ''.padEnd(10)
+        const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  ' + ''.padEnd(10)
+        const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: '
+        const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : '[CheckerCC.Live]'
         
         return `${fullCard}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
       })
@@ -197,7 +191,7 @@ export default function CardHistoryPage() {
         // Enrich with BIN database
         const enriched = binLoaded ? enrichCardWithBin(it) : it
         
-        const typeCheck = enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
+        const typeCheck = enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : ''
         return [
           enriched.fullCard || '',
           enriched.status || '',

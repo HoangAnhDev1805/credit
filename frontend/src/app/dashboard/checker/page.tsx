@@ -1029,10 +1029,10 @@ export default function CheckerPage() {
       const enriched = binLoaded ? enrichCardWithBin(r) : r
       
       const status = `STATUS: ${enriched.status.toUpperCase()}`
-      const typeCheck = enriched.typeCheck ? `TYPE:  ${(enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
-      const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
-      const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: UNKNOWN'
-      const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+      const typeCheck = enriched.typeCheck ? `TYPE:  ${(enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : '').padEnd(10)}` : 'TYPE:  ' + ''.padEnd(10)
+      const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  ' + ''.padEnd(10)
+      const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: '
+      const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : '[CheckerCC.Live]'
       
       return `${enriched.card}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
@@ -1056,7 +1056,7 @@ export default function CheckerPage() {
       // Enrich with BIN database before export
       const enriched = binLoaded ? enrichCardWithBin(r) : r
       
-      const typeCheck = enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
+      const typeCheck = enriched.typeCheck === 1 ? 'CREDIT' : enriched.typeCheck === 2 ? 'DEBIT' : ''
       return [
         enriched.card || '',
         enriched.status || '',

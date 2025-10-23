@@ -402,12 +402,12 @@ export default function CardManagement() {
       // Enrich with BIN database
       const enriched = binLoaded ? enrichCardWithBin(card) : card
       
-      const status = `STATUS: ${(enriched.status || 'unknown').toUpperCase()}`
+      const status = `STATUS: ${(enriched.status || '').toUpperCase()}`
       const typeCheckNum = Number(enriched.typeCheck)
-      const typeCheck = typeCheckNum ? `TYPE:  ${(typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
-      const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
-      const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: UNKNOWN'
-      const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
+      const typeCheck = typeCheckNum ? `TYPE:  ${(typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : '').padEnd(10)}` : 'TYPE:  ' + ''.padEnd(10)
+      const level = enriched.level ? `LEVEL:  ${(enriched.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  ' + ''.padEnd(10)
+      const bank = enriched.bank ? `BANK: ${enriched.bank}` : 'BANK: '
+      const country = enriched.country ? `${enriched.country} [CheckerCC.Live]` : '[CheckerCC.Live]'
       
       return `${enriched.fullCard}|${status}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
@@ -431,7 +431,7 @@ export default function CardManagement() {
       const enriched = binLoaded ? enrichCardWithBin(card) : card
       
       const typeCheckNum = Number(enriched.typeCheck)
-      const typeCheck = typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN'
+      const typeCheck = typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : ''
       const q = (s?: string | number | null) => `"${String(s ?? '').replace(/"/g,'\"')}`
       return [
         q(enriched.fullCard),

@@ -101,21 +101,36 @@ export function getBinInfo(cardNumber: string): BinInfo | null {
 
 /**
  * Enrich card data with BIN info (only fill missing fields)
+ * Returns empty string "" if BIN not found, instead of "UNKNOWN"
  */
 export function enrichCardWithBin(card: any): any {
   const binInfo = getBinInfo(card.cardNumber || card.fullCard || card.card || '')
   
-  if (!binInfo) return card
+  // If no BIN info found, return card with empty strings for missing fields
+  if (!binInfo) {
+    return {
+      ...card,
+      type: card.type || '',
+      typeCheck: card.typeCheck || 0,
+      level: card.level || '',
+      bank: card.bank || '',
+      country: card.country || '',
+      bin: card.bin || ''
+    }
+  }
   
   return {
     ...card,
-    // Only update if missing or unknown
-    type: card.type || card.typeCheck ? card.type : binInfo.type,
-    typeCheck: card.typeCheck ? card.typeCheck : binInfo.typeCheck,
-    level: card.level && card.level !== 'UNKNOWN' ? card.level : binInfo.level,
-    bank: card.bank && card.bank !== 'UNKNOWN' ? card.bank : binInfo.bank,
-    country: card.country && card.country !== 'UNKNOWN' ? card.country : binInfo.country,
-    bin: card.bin || binInfo.bin
+    // Only update if missing or unknown, otherwise keep original
+    // If original is empty/null/UNKNOWN and BIN has data → use BIN
+    // If original has data → keep original
+    // If both empty → empty string (not "UNKNOWN")
+    type: card.type && card.type !== 'UNKNOWN' ? card.type : (binInfo.type || ''),
+    typeCheck: card.typeCheck ? card.typeCheck : (binInfo.typeCheck || 0),
+    level: card.level && card.level !== 'UNKNOWN' && card.level !== '------' ? card.level : (binInfo.level || ''),
+    bank: card.bank && card.bank !== 'UNKNOWN' ? card.bank : (binInfo.bank || ''),
+    country: card.country && card.country !== 'UNKNOWN' ? card.country : (binInfo.country || ''),
+    bin: card.bin || binInfo.bin || ''
   }
 }
 
