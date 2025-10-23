@@ -235,6 +235,29 @@ const getHistory = async (req, res, next) => {
     // Get total count
     const total = await Card.countDocuments(query);
 
+    // Calculate stats based on query (total database with filters)
+    const statsAgg = await Card.aggregate([
+      { $match: query },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          live: { $sum: { $cond: [{ $eq: ['$status', 'live'] }, 1, 0] } },
+          die: { $sum: { $cond: [{ $in: ['$status', ['die', 'dead']] }, 1, 0] } },
+          unknown: { $sum: { $cond: [{ $eq: ['$status', 'unknown'] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'checking']] }, 1, 0] } },
+          error: { $sum: { $cond: [{ $eq: ['$status', 'error'] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    const stats = statsAgg.length > 0 ? statsAgg[0] : {
+      total: 0, live: 0, die: 0, unknown: 0, pending: 0, error: 0
+    };
+    delete stats._id;
+    const checked = stats.live + stats.die;
+    stats.successRate = checked > 0 ? Math.round((stats.live / checked) * 100) : 0;
+
     // Format response
     const formattedCards = cards.map(card => ({
       id: card._id,
@@ -258,6 +281,15 @@ const getHistory = async (req, res, next) => {
           limit,
           total,
           pages: Math.ceil(total / limit)
+        },
+        stats: {
+          total: stats.total,
+          live: stats.live,
+          dead: stats.die,
+          unknown: stats.unknown,
+          pending: stats.pending,
+          error: stats.error,
+          successRate: stats.successRate
         }
       }
     });

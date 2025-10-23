@@ -330,18 +330,75 @@ async function handleFetchCards(req, res, p) {
     const now = new Date();
     
     // Step 1: Find candidate cards (over-fetch 3x to handle concurrency)
+    // Exclude cards with status='stopped' or from stopped sessions
     const candidateCards = await Card.find({
       userId: new mongoose.Types.ObjectId(systemUserId),
       originUserId: { $ne: null },
       sessionId: { $ne: null },
       zennoposter: { $in: [0, null] },
-      status: { $in: ['pending', 'unknown'] },
+      status: { $in: ['pending', 'unknown'] }, // Exclude 'stopped' status
       typeCheck
     })
       .sort({ sessionId: 1, createdAt: 1 }) // FIFO per session
       .limit(amount * 3)
-      .select('_id')
+      .select('_id sessionId originUserId') // Need sessionId for session check
       .lean();
+    
+    // Step 1.5: Filter out cards from stopped sessions AND check user credits
+    if (candidateCards.length > 0) {
+      const CheckSession = require('../models/CheckSession');
+      const User = require('../models/User');
+      
+      const sessionIds = [...new Set(candidateCards.map(c => c.sessionId))];
+      const stoppedSessions = await CheckSession.find({
+        sessionId: { $in: sessionIds },
+        stopRequested: true
+      }).select('sessionId').lean();
+      
+      const stoppedSessionIds = new Set(stoppedSessions.map(s => s.sessionId));
+      
+      // Filter out cards from stopped sessions
+      let filteredCandidates = candidateCards.filter(c => !stoppedSessionIds.has(c.sessionId));
+      
+      if (stoppedSessionIds.size > 0) {
+        logger.info(`[checkcc] Filtered out ${candidateCards.length - filteredCandidates.length} cards from ${stoppedSessionIds.size} stopped sessions`);
+      }
+      
+      // Step 1.6: Check credit for each user before fetching their cards
+      const userIds = [...new Set(filteredCandidates.map(c => c.originUserId).filter(Boolean))];
+      if (userIds.length > 0) {
+        const users = await User.find({ _id: { $in: userIds } }).select('_id balance').lean();
+        const userBalanceMap = new Map(users.map(u => [String(u._id), u.balance || 0]));
+        
+        // Get price per card for this typeCheck
+        const Gate = require('../models/Gate');
+        const CheckSession = require('../models/CheckSession');
+        let pricePerCard = 1; // default
+        try {
+          const gate = await Gate.findOne({ typeCheck }).select('price').lean();
+          if (gate && gate.price) pricePerCard = gate.price;
+        } catch (err) {
+          logger.warn('[checkcc] Failed to get gate price, using default:', err.message);
+        }
+        
+        // Filter out cards from users with insufficient balance
+        const cardsWithSufficientCredit = filteredCandidates.filter(c => {
+          const balance = userBalanceMap.get(String(c.originUserId)) || 0;
+          return balance >= pricePerCard;
+        });
+        
+        const creditFiltered = filteredCandidates.length - cardsWithSufficientCredit.length;
+        if (creditFiltered > 0) {
+          logger.info(`[checkcc] Filtered out ${creditFiltered} cards from users with insufficient credits`);
+        }
+        
+        filteredCandidates = cardsWithSufficientCredit;
+      }
+      
+      // Update candidateCards to filtered list
+      candidateCards.length = 0;
+      candidateCards.push(...filteredCandidates);
+    }
     
     let cards = [];
     

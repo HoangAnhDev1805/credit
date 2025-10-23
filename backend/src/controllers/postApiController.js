@@ -205,6 +205,20 @@ exports.updateCardStatus = async (req, res) => {
       return res.json({ ErrorId: 0, Title: 'error', Message: 'Card not found', Content: '' });
     }
 
+    // Step: Check if session was stopped before processing result
+    if (card.sessionId) {
+      const session = await CheckSession.findOne({ sessionId: card.sessionId }).select('stopRequested').lean();
+      if (session && session.stopRequested === true) {
+        logger.info(`[POST] Card ${card._id} from stopped session ${card.sessionId}, skipping billing`);
+        return res.json({ 
+          ErrorId: 0, 
+          Title: 'stopped', 
+          Message: 'Session was stopped, result ignored', 
+          Content: '' 
+        });
+      }
+    }
+
     // Realtime billing per card when result is definitive (live/die).
     // Unknown or error are NOT billed.
     try {

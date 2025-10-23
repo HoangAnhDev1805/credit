@@ -486,6 +486,14 @@ export default function CheckerPage() {
         setTimeLeft(0)
         setIsChecking(true)
       })
+      // Realtime session stopped
+      socketOn('checker:session:stopped', (msg: any) => {
+        console.log('[Checker] Session stopped:', msg)
+        setIsChecking(false)
+        stopRequestedRef.current = true
+        setTimeLeft(0)
+        toast({ title: 'Đã dừng checking', variant: 'default' })
+      })
       // Khi ZennoPoster fetch cards → bắt đầu timeout
       socketOn('checker:fetch', (msg: any) => {
         if (stopRequestedRef.current) return

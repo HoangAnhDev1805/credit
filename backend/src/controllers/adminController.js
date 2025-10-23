@@ -328,6 +328,17 @@ const updateUser = async (req, res, next) => {
           status: 'completed',
           metadata: { adminId: req.user.id, adminUsername: req.user.username }
         });
+        
+        // Emit realtime balance update
+        try {
+          const io = req.app.get('io');
+          if (io) {
+            io.to(String(user._id)).emit('user:balance-changed', { balance: user.balance });
+            logger.info(`[Admin] Emitted balance update for user ${user._id}: ${user.balance}`);
+          }
+        } catch (err) {
+          logger.error('[Admin] Failed to emit balance update:', err);
+        }
       }
     }
 

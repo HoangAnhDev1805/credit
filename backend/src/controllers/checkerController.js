@@ -123,8 +123,8 @@ exports.startOrStop = async (req, res) => {
       );
       if (!session) return res.status(404).json({ success: false, message: 'Session không tồn tại' });
       
-      // Update all pending/checking cards to 'unknown' status
-      await Card.updateMany(
+      // Update all pending/checking cards to 'stopped' status (NOT 'unknown' to prevent requeue)
+      const updateResult = await Card.updateMany(
         { 
           sessionId, 
           status: { $in: ['pending', 'checking'] },
@@ -132,14 +132,25 @@ exports.startOrStop = async (req, res) => {
         },
         { 
           $set: { 
-            status: 'unknown',
+            status: 'stopped',
             errorMessage: 'Stopped by user',
             zennoposter: 0 // KHÔNG mark zennoposter=1 vì đây KHÔNG phải kết quả từ ZennoPoster
           } 
         }
       );
       
-      logger.info(`[StopChecking] Session ${sessionId}: Updated pending/checking cards to unknown`);
+      logger.info(`[StopChecking] Session ${sessionId}: Updated ${updateResult.modifiedCount || 0} pending/checking cards to stopped`);
+      
+      // Emit socket event to notify user
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.to(String(userId)).emit('checker:session:stopped', { sessionId });
+          io.to(`session:${sessionId}`).emit('checker:session:stopped', { sessionId });
+        }
+      } catch (err) {
+        logger.error('[StopChecking] Failed to emit socket event:', err);
+      }
       
       return res.json({ success: true, message: 'Đã dừng checking và cập nhật trạng thái thẻ', data: { session } });
     }
@@ -172,18 +183,9 @@ exports.startOrStop = async (req, res) => {
     const sid = crypto.randomUUID();
     // Lấy timeoutSec từ cấu hình
     let timeoutSec = Number(await SiteConfig.getByKey('checker_card_timeout_sec')) || 120;
-    const session = await CheckSession.create({ sessionId: sid, userId, total: parsed.length, pending: parsed.length, pricePerCard, gate });
-    try {
-      const io = req.app.get('io');
-      if (io) {
-        const payload = { sessionId: sid, total: parsed.length, pricePerCard, timeoutSec };
-        io.to(String(userId)).emit('checker:session:start', payload);
-        io.to(`session:${sid}`).emit('checker:session:start', payload);
-      }
-    } catch {}
-
+    
     // Insert cards vào stock user, gắn originUserId + sessionId
-    const docs = parsed.map(c => {
+    const docsAll = parsed.map(c => {
       const bin = c.cardNumber?.slice(0,6) || undefined;
       const brand = c.cardNumber ? determineBrandLocal(c.cardNumber) : 'unknown';
       return {
@@ -201,6 +203,42 @@ exports.startOrStop = async (req, res) => {
         bin
       };
     });
+    
+    // Deduplicate by fullCard to prevent E11000 error when user submits same card multiple times
+    const seenFullCards = new Map();
+    const docs = [];
+    for (const doc of docsAll) {
+      if (!seenFullCards.has(doc.fullCard)) {
+        seenFullCards.set(doc.fullCard, true);
+        docs.push(doc);
+      }
+    }
+    
+    if (docsAll.length !== docs.length) {
+      logger.info(`[startOrStop] Deduplicated ${docsAll.length - docs.length} duplicate cards in batch`);
+    }
+    
+    // Create session AFTER deduplication to have correct total count
+    const session = await CheckSession.create({ 
+      sessionId: sid, 
+      userId, 
+      total: docs.length,      // Use deduplicated count
+      pending: docs.length,    // Use deduplicated count
+      pricePerCard, 
+      gate 
+    });
+    
+    // Emit session start event
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        const payload = { sessionId: sid, total: docs.length, pricePerCard, timeoutSec };
+        io.to(String(userId)).emit('checker:session:start', payload);
+        io.to(`session:${sid}`).emit('checker:session:start', payload);
+      }
+    } catch (err) {
+      logger.warn('[startOrStop] Failed to emit session:start event:', err.message);
+    }
 
     // Check Redis cache first for DIE cards
     const fullCards = Array.from(new Set(docs.map(d => d.fullCard))).filter(Boolean);
@@ -265,16 +303,39 @@ exports.startOrStop = async (req, res) => {
         
         let cardDoc = ex;
         if (ex.fromCache) {
-          // Create new card from cache (insert với status checking)
-          const newCard = await Card.create({
-            ...d,
-            sessionId: sid,
-            status: 'checking',
-            zennoposter: 1,
-            checkDeadlineAt: revealAt,
-            lastCheckAt: new Date()
-          });
-          cardDoc = newCard;
+          // Upsert card from cache (prevent race condition with duplicate inserts)
+          // Split fields: static fields in $setOnInsert, dynamic fields in $set
+          const result = await Card.findOneAndUpdate(
+            { fullCard: d.fullCard, userId: d.userId },
+            {
+              $setOnInsert: {
+                // Static fields - only set on INSERT
+                cardNumber: d.cardNumber,
+                expiryMonth: d.expiryMonth,
+                expiryYear: d.expiryYear,
+                cvv: d.cvv,
+                fullCard: d.fullCard,
+                userId: d.userId,
+                originUserId: d.originUserId,
+                typeCheck: d.typeCheck,
+                brand: d.brand,
+                bin: d.bin,
+                createdAt: new Date()
+              },
+              $set: {
+                // Dynamic fields - always update
+                sessionId: sid,
+                status: 'checking',
+                zennoposter: 1,
+                checkDeadlineAt: revealAt,
+                lastCheckAt: new Date(),
+                errorMessage: ex.errorMessage || 'Declined (cached)',
+                price: d.price
+              }
+            },
+            { upsert: true, new: true }
+          );
+          cardDoc = result;
         } else {
           // Update existing card from DB
           await Card.updateOne(
@@ -477,7 +538,7 @@ exports.startOrStop = async (req, res) => {
       { $set: { status: 'pending', lastCheckAt: new Date(), zennoposter: 0 }, $unset: { checkDeadlineAt: '' } }
     );
 
-    return res.json({ success: true, message: 'Đã tạo phiên kiểm tra', data: { sessionId: sid, estimatedCost: estimated, pricePerCard, total: parsed.length, timeoutSec, stockUserId: stockIdStr, gateUsed: gate, checkType } });
+    return res.json({ success: true, message: 'Đã tạo phiên kiểm tra', data: { sessionId: sid, estimatedCost: estimated, pricePerCard, total: docs.length, timeoutSec, stockUserId: stockIdStr, gateUsed: gate, checkType } });
   } catch (err) {
     logger.error('[startOrStop] Error:', err);
     logger.error('[startOrStop] Stack:', err.stack);

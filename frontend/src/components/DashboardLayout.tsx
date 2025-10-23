@@ -19,7 +19,8 @@ import {
   Menu,
   X,
   Shield,
-  Bitcoin
+  Bitcoin,
+  History
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -499,6 +500,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       <DropdownMenuSeparator />
                     </>
                   )}
+                  <DropdownMenuItem onClick={() => router.push('/dashboard/card-history')}>
+                    <History className="h-4 w-4 mr-2" />
+                    Card History
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
                     <Settings className="h-4 w-4 mr-2" />
                     Settings

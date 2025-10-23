@@ -30,7 +30,7 @@ const cardSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['live', 'die', 'unknown', 'checking', 'pending'],
+    enum: ['live', 'die', 'unknown', 'checking', 'pending', 'stopped'],
     required: [true, 'Card status is required'],
     default: 'unknown'
   },
