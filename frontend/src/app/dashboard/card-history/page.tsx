@@ -109,6 +109,7 @@ export default function CardHistoryPage() {
       
       // Set stats from API (total database with filters)
       if (data?.stats) {
+        console.log('[CardHistory] Stats from API:', data.stats)
         setStats({
           total: data.stats.total || 0,
           live: data.stats.live || 0,
@@ -117,6 +118,27 @@ export default function CardHistoryPage() {
           pending: data.stats.pending || 0,
           error: data.stats.error || 0,
           successRate: data.stats.successRate || 0
+        })
+      } else {
+        console.warn('[CardHistory] No stats in API response:', data)
+        // Fallback: calculate from current page if no stats from API
+        const pageTotal = filtered.length
+        const pageLive = filtered.filter(c => c.status === 'live').length
+        const pageDead = filtered.filter(c => c.status === 'die' || c.status === 'dead').length
+        const pagePending = filtered.filter(c => c.status === 'pending' || c.status === 'checking').length
+        const pageUnknown = filtered.filter(c => c.status === 'unknown').length
+        const pageError = filtered.filter(c => c.status === 'error').length
+        const checked = pageLive + pageDead
+        const pageSuccessRate = checked > 0 ? Math.round((pageLive / checked) * 100) : 0
+        
+        setStats({
+          total: pageTotal,
+          live: pageLive,
+          dead: pageDead,
+          unknown: pageUnknown,
+          pending: pagePending,
+          error: pageError,
+          successRate: pageSuccessRate
         })
       }
     } catch (e: any) {
@@ -133,7 +155,16 @@ export default function CardHistoryPage() {
 
   const handleExportTxt = () => {
     try {
-      const lines = items.map(it => it.fullCard || `${it.cardNumber}|${it.expiryMonth}|${it.expiryYear}|${it.cvv}`)
+      // Format: card|mm|yy|cvv|TYPE: xxx|LEVEL: xxx|BANK: xxx|COUNTRY https://Checkcc.live
+      const lines = items.map(it => {
+        const fullCard = it.fullCard || `${it.cardNumber}|${it.expiryMonth}|${it.expiryYear}|${it.cvv}`
+        const typeCheck = it.typeCheck ? `TYPE: ${it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'}` : 'TYPE: UNKNOWN'
+        const level = it.level ? `LEVEL: ${it.level.toUpperCase()}` : 'LEVEL: UNKNOWN'
+        const bank = it.bank ? `BANK: ${it.bank}` : 'BANK: UNKNOWN'
+        const country = it.country ? `${it.country} https://Checkcc.live` : 'UNKNOWN https://Checkcc.live'
+        
+        return `${fullCard}|${typeCheck}|${level}|${bank}|${country}`
+      })
       const content = lines.join('\n')
       
       const blob = new Blob([content], { type: 'text/plain' })
@@ -152,24 +183,27 @@ export default function CardHistoryPage() {
 
   const handleExportExcel = () => {
     try {
-      const header = ['Card Number', 'Expiry Month', 'Expiry Year', 'CVV', 'Full Card', 'Brand', 'BIN', 'Country', 'Bank', 'Level', 'Status', 'Gate Type', 'Error Message', 'Checked At', 'Created At'].join(',')
-      const rows = items.map(it => [
-        it.cardNumber || '',
-        it.expiryMonth || '',
-        it.expiryYear || '',
-        it.cvv || '',
-        it.fullCard || '',
-        it.brand || '',
-        it.bin || '',
-        it.country || '',
-        it.bank || '',
-        it.level || '',
-        it.status || '',
-        it.typeCheck || '',
-        (it.errorMessage || '').replace(/,/g, ';'),
-        it.checkedAt ? new Date(it.checkedAt).toISOString() : '',
-        new Date(it.createdAt).toISOString()
-      ].join(','))
+      const header = ['Card Number', 'Expiry Month', 'Expiry Year', 'CVV', 'Full Card', 'Type', 'Brand', 'BIN', 'Level', 'Bank', 'Country', 'Status', 'Error Message', 'Checked At', 'Created At'].join(',')
+      const rows = items.map(it => {
+        const typeCheck = it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
+        return [
+          it.cardNumber || '',
+          it.expiryMonth || '',
+          it.expiryYear || '',
+          it.cvv || '',
+          it.fullCard || '',
+          typeCheck,
+          (it.brand || '').toUpperCase(),
+          it.bin || '',
+          (it.level || '').toUpperCase(),
+          it.bank || '',
+          it.country || '',
+          it.status || '',
+          (it.errorMessage || '').replace(/,/g, ';'),
+          it.checkedAt ? new Date(it.checkedAt).toISOString() : '',
+          new Date(it.createdAt).toISOString()
+        ].join(',')
+      })
       
       const csv = [header, ...rows].join('\n')
       const blob = new Blob([csv], { type: 'text/csv' })
@@ -368,7 +402,7 @@ export default function CardHistoryPage() {
             </div>
 
             {/* Filter Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Status</label>
                 <Select value={status} onValueChange={setStatus}>
@@ -422,18 +456,20 @@ export default function CardHistoryPage() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">Date Range</label>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <Input 
                     type="date" 
                     value={startDate} 
                     onChange={(e) => setStartDate(e.target.value)}
                     className="text-sm"
+                    placeholder="From"
                   />
                   <Input 
                     type="date" 
                     value={endDate} 
                     onChange={(e) => setEndDate(e.target.value)}
                     className="text-sm"
+                    placeholder="To"
                   />
                 </div>
               </div>

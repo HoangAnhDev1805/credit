@@ -50,8 +50,18 @@ const normalizeStatus = (s: string): CheckResult['status'] => {
 interface CheckResult {
   id: string
   card: string
+  cardNumber?: string
+  expiryMonth?: string
+  expiryYear?: string
+  cvv?: string
   status: "Live" | "Die" | "Error" | "Unknown" | "Checking"
   response?: string
+  brand?: string
+  bin?: string
+  country?: string
+  bank?: string
+  level?: string
+  typeCheck?: number
 }
 
 interface Gate {
@@ -204,9 +214,57 @@ export default function CheckerPage() {
         const entries: any[] = JSON.parse(savedCache)
         if (Array.isArray(entries)) setCardCache(new Map(entries))
       }
-      setIsChecking(false)
-      setSessionId(null)
-      try { localStorage.setItem('checker_is_checking', '0'); localStorage.removeItem('checker_session_id'); localStorage.removeItem('checker_stats') } catch {}
+      
+      // ✅ FIX: Stop session on reload and clear all data
+      if (savedSessionId && savedIsChecking === '1') {
+        console.log('[Checker] Detected active session on reload, stopping:', savedSessionId)
+        
+        // Stop the session via API (pause ZennoPoster)
+        apiClient.post('/checker/stop', { sessionId: savedSessionId })
+          .then(() => {
+            console.log('[Checker] Session stopped successfully')
+          })
+          .catch((err: any) => {
+            console.error('[Checker] Failed to stop session:', err)
+          })
+          .finally(() => {
+            // Clear all state regardless of API result
+            setIsChecking(false)
+            setSessionId(null)
+            setResults([])
+            setCardsInput('')
+            setStats({
+              total: 0,
+              live: 0,
+              dead: 0,
+              error: 0,
+              unknown: 0,
+              pending: 0,
+              progress: 0,
+              successRate: 0,
+              liveRate: 0
+            })
+            
+            // Clear localStorage
+            try {
+              localStorage.removeItem('checker_results')
+              localStorage.removeItem('checker_cards_input')
+              localStorage.removeItem('checker_session_id')
+              localStorage.removeItem('checker_is_checking')
+              localStorage.removeItem('checker_stats')
+              localStorage.removeItem('checker_card_cache')
+            } catch {}
+          })
+      } else {
+        // No active session → reset state
+        setIsChecking(false)
+        setSessionId(null)
+        try { 
+          localStorage.setItem('checker_is_checking', '0')
+          localStorage.removeItem('checker_session_id')
+          localStorage.removeItem('checker_stats')
+        } catch {}
+      }
     } catch {}
   }, [])
 
@@ -564,7 +622,21 @@ export default function CheckerPage() {
           const key = String(msg.card).trim()
           const idx = list.findIndex(r => String(r.card).trim() === key && r.status === 'Checking')
           if (idx !== -1) {
-            list[idx] = { ...list[idx], status: status as any, response: msg.response || '' }
+            list[idx] = { 
+              ...list[idx], 
+              status: status as any, 
+              response: msg.response || '',
+              cardNumber: msg.cardNumber,
+              expiryMonth: msg.expiryMonth,
+              expiryYear: msg.expiryYear,
+              cvv: msg.cvv,
+              brand: msg.brand,
+              bin: msg.bin,
+              country: msg.country,
+              bank: msg.bank,
+              level: msg.level,
+              typeCheck: msg.typeCheck
+            }
           }
           return list
         })
@@ -977,7 +1049,17 @@ export default function CheckerPage() {
   const exportCheckedTxt = () => {
     const checked = results.filter(r => r.status !== 'Checking')
     if (checked.length === 0) return
-    const txt = checked.map(r => r.card).join('\n')
+    
+    // Format: card|mm|yy|cvv|TYPE: xxx|LEVEL: xxx|BANK: xxx|COUNTRY https://Checkcc.live
+    const txt = checked.map(r => {
+      const typeCheck = r.typeCheck ? `TYPE: ${r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'}` : 'TYPE: UNKNOWN'
+      const level = r.level ? `LEVEL: ${r.level.toUpperCase()}` : 'LEVEL: UNKNOWN'
+      const bank = r.bank ? `BANK: ${r.bank}` : 'BANK: UNKNOWN'
+      const country = r.country ? `${r.country} https://Checkcc.live` : 'UNKNOWN https://Checkcc.live'
+      
+      return `${r.card}|${typeCheck}|${level}|${bank}|${country}`
+    }).join('\n')
+    
     const blob = new Blob([txt], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -985,13 +1067,33 @@ export default function CheckerPage() {
     a.download = `checked_cards_${new Date().toISOString().split('T')[0]}.txt`
     a.click()
     URL.revokeObjectURL(url)
+    toast({ title: 'Success', description: `Exported ${checked.length} cards to TXT` })
   }
 
   const exportCheckedCsv = () => {
     const checked = results.filter(r => r.status !== 'Checking')
     if (checked.length === 0) return
-    const header = 'Card,Status,Message'
-    const rows = checked.map(r => `${r.card},${r.status},${(r.response||'').replace(/,/g,';')}`)
+    
+    const header = 'Card Number,Expiry Month,Expiry Year,CVV,Full Card,Status,Type,Brand,BIN,Level,Bank,Country,Message'
+    const rows = checked.map(r => {
+      const typeCheck = r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'
+      return [
+        r.cardNumber || '',
+        r.expiryMonth || '',
+        r.expiryYear || '',
+        r.cvv || '',
+        r.card || '',
+        r.status || '',
+        typeCheck,
+        (r.brand || '').toUpperCase(),
+        r.bin || '',
+        (r.level || '').toUpperCase(),
+        r.bank || '',
+        r.country || '',
+        (r.response || '').replace(/,/g, ';')
+      ].join(',')
+    })
+    
     const csv = [header, ...rows].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -1000,6 +1102,7 @@ export default function CheckerPage() {
     a.download = `checked_cards_${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     URL.revokeObjectURL(url)
+    toast({ title: 'Success', description: `Exported ${checked.length} cards to CSV` })
   }
 
 

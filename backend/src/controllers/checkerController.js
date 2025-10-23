@@ -616,7 +616,7 @@ exports.getStatus = async (req, res) => {
       zennoposter: 1, // CHỈ lấy cards đã có result từ ZennoPoster
       updatedAt: { $gte: new Date(Date.now() - 30000) } // 30s window
     })
-      .select('_id fullCard status errorMessage zennoposter')
+      .select('_id fullCard cardNumber expiryMonth expiryYear cvv status errorMessage brand bin country bank level typeCheck zennoposter')
       .sort({ updatedAt: -1 })
       .limit(100)
       .lean();
@@ -631,8 +631,18 @@ exports.getStatus = async (req, res) => {
             sessionId,
             cardId: String(c._id),
             card: c.fullCard,
+            cardNumber: c.cardNumber,
+            expiryMonth: c.expiryMonth,
+            expiryYear: c.expiryYear,
+            cvv: c.cvv,
             status: c.status,
-            response: c.errorMessage || ''
+            response: c.errorMessage || '',
+            brand: c.brand,
+            bin: c.bin,
+            country: c.country,
+            bank: c.bank,
+            level: c.level,
+            typeCheck: c.typeCheck
           });
         }
       }
@@ -657,9 +667,19 @@ exports.getStatus = async (req, res) => {
         },
         results: recent.map(c => ({ 
           cardId: String(c._id),
-          card: c.fullCard, 
-          status: c.status, 
-          response: c.errorMessage || '' 
+          card: c.fullCard,
+          cardNumber: c.cardNumber,
+          expiryMonth: c.expiryMonth,
+          expiryYear: c.expiryYear,
+          cvv: c.cvv,
+          status: c.status,
+          response: c.errorMessage || '',
+          brand: c.brand,
+          bin: c.bin,
+          country: c.country,
+          bank: c.bank,
+          level: c.level,
+          typeCheck: c.typeCheck
         }))
       }
     });
