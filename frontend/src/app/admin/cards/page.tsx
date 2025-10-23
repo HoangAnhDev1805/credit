@@ -393,15 +393,15 @@ export default function CardManagement() {
   // Export TXT format user-friendly (like checker page)
   const handleExportUserTxt = () => {
     const filteredCards = selectedList.length > 0 ? selectedList : filterCards()
-    // Format: card|TYPE: xxx|LEVEL: xxx|BANK: xxx|COUNTRY https://Checkcc.live
+    // Format: card|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
     const txt = filteredCards.map(card => {
       const typeCheckNum = Number(card.typeCheck)
-      const typeCheck = typeCheckNum ? `TYPE: ${typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN'}` : 'TYPE: UNKNOWN'
-      const level = card.level ? `LEVEL: ${card.level.toUpperCase()}` : 'LEVEL: UNKNOWN'
+      const typeCheck = typeCheckNum ? `TYPE:  ${(typeCheckNum === 1 ? 'CREDIT' : typeCheckNum === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
+      const level = card.level ? `LEVEL:  ${(card.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
       const bank = card.bank ? `BANK: ${card.bank}` : 'BANK: UNKNOWN'
-      const country = card.country ? `${card.country} https://Checkcc.live` : 'UNKNOWN https://Checkcc.live'
+      const country = card.country ? `${card.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
       
-      return `${card.fullCard}|${typeCheck}|${level}|${bank}|${country}`
+      return `${card.fullCard}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
 
     const blob = new Blob([txt], { type: 'text/plain' })

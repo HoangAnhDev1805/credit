@@ -155,15 +155,15 @@ export default function CardHistoryPage() {
 
   const handleExportTxt = () => {
     try {
-      // Format: card|mm|yy|cvv|TYPE: xxx|LEVEL: xxx|BANK: xxx|COUNTRY https://Checkcc.live
+      // Format: card|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
       const lines = items.map(it => {
         const fullCard = it.fullCard || `${it.cardNumber}|${it.expiryMonth}|${it.expiryYear}|${it.cvv}`
-        const typeCheck = it.typeCheck ? `TYPE: ${it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'}` : 'TYPE: UNKNOWN'
-        const level = it.level ? `LEVEL: ${it.level.toUpperCase()}` : 'LEVEL: UNKNOWN'
+        const typeCheck = it.typeCheck ? `TYPE:  ${(it.typeCheck === 1 ? 'CREDIT' : it.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
+        const level = it.level ? `LEVEL:  ${(it.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
         const bank = it.bank ? `BANK: ${it.bank}` : 'BANK: UNKNOWN'
-        const country = it.country ? `${it.country} https://Checkcc.live` : 'UNKNOWN https://Checkcc.live'
+        const country = it.country ? `${it.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
         
-        return `${fullCard}|${typeCheck}|${level}|${bank}|${country}`
+        return `${fullCard}|${typeCheck}| ${level}| ${bank}|${country}`
       })
       const content = lines.join('\n')
       

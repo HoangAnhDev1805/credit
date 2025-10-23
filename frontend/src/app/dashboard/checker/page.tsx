@@ -77,7 +77,7 @@ export default function CheckerPage() {
   const { user } = useAuthStore()
   
   // Setup Socket.IO connection
-  const { on: socketOn, emit: socketEmit, isConnected } = useSocket({ enabled: true, debug: false })
+  const { on: socketOn, emit: socketEmit, isConnected } = useSocket()
 
   // Input & session
   const [cardsInput, setCardsInput] = useState("")
@@ -128,6 +128,20 @@ export default function CheckerPage() {
   const [searchCard, setSearchCard] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize] = useState(100) // 100 results per page
+  
+  // Warn user before reload/close when checking
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isChecking) {
+        e.preventDefault()
+        e.returnValue = 'Are you sure you want to reload? This will stop checking cards and clear all data.'
+        return e.returnValue
+      }
+    }
+    
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isChecking])
   
   const filteredResults = useMemo(() => {
     let filtered = results
@@ -184,14 +198,59 @@ export default function CheckerPage() {
     }
   }, [sessionId, socketEmit])
 
-  // Load persisted state on mount (keep results after reload)
+  // Load persisted state on mount OR clear if session was active
   useEffect(() => {
     try {
+      const savedSessionId = localStorage.getItem('checker_session_id')
+      const savedIsChecking = localStorage.getItem('checker_is_checking')
+      
+      // ✅ FIX: If reload during active session → Stop API and clear ALL data
+      if (savedSessionId && savedIsChecking === '1') {
+        console.log('[Checker] Detected active session on reload, stopping and clearing all data:', savedSessionId)
+        
+        // Stop the session via API (pause ZennoPoster)
+        apiClient.post('/checker/stop', { sessionId: savedSessionId })
+          .then(() => {
+            console.log('[Checker] Session stopped successfully')
+          })
+          .catch((err: any) => {
+            console.error('[Checker] Failed to stop session:', err)
+          })
+        
+        // Clear all state IMMEDIATELY (don't wait for API)
+        setIsChecking(false)
+        setSessionId(null)
+        setResults([])
+        setCardsInput('')
+        setStats({
+          total: 0,
+          live: 0,
+          dead: 0,
+          error: 0,
+          unknown: 0,
+          pending: 0,
+          progress: 0,
+          successRate: 0,
+          liveRate: 0
+        })
+        
+        // Clear localStorage
+        try {
+          localStorage.removeItem('checker_results')
+          localStorage.removeItem('checker_cards_input')
+          localStorage.removeItem('checker_session_id')
+          localStorage.removeItem('checker_is_checking')
+          localStorage.removeItem('checker_stats')
+          localStorage.removeItem('checker_card_cache')
+        } catch {}
+        
+        return // Don't load any data
+      }
+      
+      // No active session → Load persisted results (if any)
       const savedResults = localStorage.getItem('checker_results')
       const savedCardsInput = localStorage.getItem('checker_cards_input')
       const savedCache = localStorage.getItem('checker_card_cache')
-      const savedSessionId = localStorage.getItem('checker_session_id')
-      const savedIsChecking = localStorage.getItem('checker_is_checking')
 
       if (savedResults) {
         const arr = JSON.parse(savedResults)
@@ -208,63 +267,19 @@ export default function CheckerPage() {
           }
         }
       }
-      // DON'T load stats from localStorage - they might be from old sessions
-      // Stats will be updated by socket/polling when session starts
+      
       if (savedCache) {
         const entries: any[] = JSON.parse(savedCache)
         if (Array.isArray(entries)) setCardCache(new Map(entries))
       }
       
-      // ✅ FIX: Stop session on reload and clear all data
-      if (savedSessionId && savedIsChecking === '1') {
-        console.log('[Checker] Detected active session on reload, stopping:', savedSessionId)
-        
-        // Stop the session via API (pause ZennoPoster)
-        apiClient.post('/checker/stop', { sessionId: savedSessionId })
-          .then(() => {
-            console.log('[Checker] Session stopped successfully')
-          })
-          .catch((err: any) => {
-            console.error('[Checker] Failed to stop session:', err)
-          })
-          .finally(() => {
-            // Clear all state regardless of API result
-            setIsChecking(false)
-            setSessionId(null)
-            setResults([])
-            setCardsInput('')
-            setStats({
-              total: 0,
-              live: 0,
-              dead: 0,
-              error: 0,
-              unknown: 0,
-              pending: 0,
-              progress: 0,
-              successRate: 0,
-              liveRate: 0
-            })
-            
-            // Clear localStorage
-            try {
-              localStorage.removeItem('checker_results')
-              localStorage.removeItem('checker_cards_input')
-              localStorage.removeItem('checker_session_id')
-              localStorage.removeItem('checker_is_checking')
-              localStorage.removeItem('checker_stats')
-              localStorage.removeItem('checker_card_cache')
-            } catch {}
-          })
-      } else {
-        // No active session → reset state
-        setIsChecking(false)
-        setSessionId(null)
-        try { 
-          localStorage.setItem('checker_is_checking', '0')
-          localStorage.removeItem('checker_session_id')
-          localStorage.removeItem('checker_stats')
-        } catch {}
-      }
+      // Reset session state
+      setIsChecking(false)
+      setSessionId(null)
+      try { 
+        localStorage.setItem('checker_is_checking', '0')
+        localStorage.removeItem('checker_session_id')
+      } catch {}
     } catch {}
   }, [])
 
@@ -550,7 +565,7 @@ export default function CheckerPage() {
         setIsChecking(false)
         stopRequestedRef.current = true
         setTimeLeft(0)
-        toast({ title: 'Đã dừng checking', variant: 'default' })
+        toast({ title: 'Checking Stopped', variant: 'default' })
       })
       // Khi ZennoPoster fetch cards → bắt đầu timeout
       socketOn('checker:fetch', (msg: any) => {
@@ -1023,7 +1038,7 @@ export default function CheckerPage() {
   // Clear only results (not allowed while checking)
   const handleClearResults = () => {
     if (isChecking) {
-      toast({ title: 'Đang kiểm tra', description: 'Hãy dừng Checking trước khi Clear Results.', variant: 'destructive' })
+      toast({ title: 'Checking in Progress', description: 'Please stop checking before clearing results.', variant: 'destructive' })
       return
     }
     setResults([])
@@ -1042,7 +1057,7 @@ export default function CheckerPage() {
       await navigator.clipboard.writeText(text)
       toast({ title: t('checker.messages.copied'), description: t('checker.messages.copied') + ` ${filteredResults.length} ${t('checker.stats.lines')}` })
     } catch {
-      toast({ title: "Lỗi", description: "Không thể copy", variant: "destructive" })
+      toast({ title: 'Error', description: 'Failed to copy', variant: 'destructive' })
     }
   }
 
@@ -1050,14 +1065,14 @@ export default function CheckerPage() {
     const checked = results.filter(r => r.status !== 'Checking')
     if (checked.length === 0) return
     
-    // Format: card|mm|yy|cvv|TYPE: xxx|LEVEL: xxx|BANK: xxx|COUNTRY https://Checkcc.live
+    // Format: card|TYPE:  xxx  | LEVEL:  xxx  | BANK: xxx|COUNTRY [CheckerCC.Live]
     const txt = checked.map(r => {
-      const typeCheck = r.typeCheck ? `TYPE: ${r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN'}` : 'TYPE: UNKNOWN'
-      const level = r.level ? `LEVEL: ${r.level.toUpperCase()}` : 'LEVEL: UNKNOWN'
+      const typeCheck = r.typeCheck ? `TYPE:  ${(r.typeCheck === 1 ? 'CREDIT' : r.typeCheck === 2 ? 'DEBIT' : 'UNKNOWN').padEnd(10)}` : 'TYPE:  UNKNOWN    '
+      const level = r.level ? `LEVEL:  ${(r.level.toUpperCase()).padEnd(10)}` : 'LEVEL:  UNKNOWN    '
       const bank = r.bank ? `BANK: ${r.bank}` : 'BANK: UNKNOWN'
-      const country = r.country ? `${r.country} https://Checkcc.live` : 'UNKNOWN https://Checkcc.live'
+      const country = r.country ? `${r.country} [CheckerCC.Live]` : 'UNKNOWN [CheckerCC.Live]'
       
-      return `${r.card}|${typeCheck}|${level}|${bank}|${country}`
+      return `${r.card}|${typeCheck}| ${level}| ${bank}|${country}`
     }).join('\n')
     
     const blob = new Blob([txt], { type: 'text/plain' })
