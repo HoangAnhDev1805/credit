@@ -669,11 +669,11 @@ export default function CheckerPage() {
   const normalizeCardLine = (line: string): string => {
     if (!line || !line.trim()) return ''
     
-    // Replace all separators with pipe (comma, semicolon, colon, quotes, dot, etc.)
+    // Replace all separators with pipe (comma, semicolon, colon, quotes, dot, slash, backslash, etc.)
     let normalized = line.trim()
-      .replace(/[,;:"\.'`~\-+=_\s]+/g, '|')  // All separators → pipe
-      .replace(/\|+/g, '|')                   // Multiple pipes → single pipe
-      .replace(/^\|+|\|+$/g, '')              // Remove leading/trailing pipes
+      .replace(/[,;:"\.'`~\-+=_\s\/\\]+/g, '|')  // All separators → pipe
+      .replace(/\|+/g, '|')                       // Multiple pipes → single pipe
+      .replace(/^\|+|\|+$/g, '')                  // Remove leading/trailing pipes
     
     // Split and take only first 4 parts (CARD|MM|YY|CVV)
     const parts = normalized.split('|').filter(p => p.length > 0)
@@ -1177,7 +1177,7 @@ export default function CheckerPage() {
                 Format: <code className="bg-muted px-1 py-0.5 rounded">CARD|MM|YY|CVV</code> (e.g. 6011113280430047|09|28|190)
                 <br />
                 <span className="text-xs">
-                  ✓ Auto-normalize: All separators (, ; : " ' . ` ~ - + = _ space tab) → pipes
+                  ✓ Auto-normalize: All separators (, ; : " ' . ` ~ - + = _ / \ space tab) → pipes
                   <br />
                   ✓ Auto-limit: CVV max 3 digits (4th digit removed automatically)
                   <br />
