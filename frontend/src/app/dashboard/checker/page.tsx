@@ -664,6 +664,26 @@ export default function CheckerPage() {
     }
     setTimeLeft(0)
   }
+  
+  // Normalize card format: CARD|MM|YY|CVV
+  const normalizeCardLine = (line: string): string => {
+    if (!line || !line.trim()) return ''
+    
+    // Replace separators (comma, semicolon, space, tab) with pipe
+    let normalized = line.trim()
+      .replace(/[,;]\s*/g, '|')  // comma or semicolon → pipe
+      .replace(/\s+/g, '|')      // spaces or tabs → pipe
+      .replace(/\|+/g, '|')      // multiple pipes → single pipe
+    
+    // Split and take only first 4 parts (CARD|MM|YY|CVV)
+    const parts = normalized.split('|').filter(p => p.length > 0)
+    if (parts.length > 4) {
+      normalized = parts.slice(0, 4).join('|')
+    }
+    
+    return normalized
+  }
+  
   const validateLine = (line: string) => {
     // cc|mm|yy|cvv or cc|mm|yyyy|cvv
     return /^(\d{13,19})\|(\d{1,2})\|(\d{2}|\d{4})\|(\d{3,4})$/.test(line.trim())
@@ -1130,7 +1150,9 @@ export default function CheckerPage() {
                 Card Input
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                {t('checker.formatInfo')}
+                Format: <code className="bg-muted px-1 py-0.5 rounded">CARD|MM|YY|CVV</code> (e.g. 6011113280430047|09|28|190)
+                <br />
+                <span className="text-xs">Auto-normalize: Comma, semicolon, or spaces will be converted to pipes. Extra info after CVV will be removed.</span>
               </p>
             </CardHeader>
             <CardContent>
@@ -1164,9 +1186,15 @@ export default function CheckerPage() {
 
               <Textarea
                 value={cardsInput}
-                onChange={(e) => setCardsInput(e.target.value)}
+                onChange={(e) => {
+                  const rawInput = e.target.value
+                  // Normalize each line on the fly
+                  const lines = rawInput.split('\n')
+                  const normalized = lines.map(line => normalizeCardLine(line)).join('\n')
+                  setCardsInput(normalized)
+                }}
                 rows={10}
-                placeholder={t('checker.inputPlaceholder')}
+                placeholder="6011113280430047|09|28|190&#10;4532123456789012|12|25|123&#10;5555555555554444|01|26|456"
                 className="font-mono text-xs sm:text-sm"
               />
               <div className="mt-4 flex flex-col sm:flex-row flex-wrap gap-2">
