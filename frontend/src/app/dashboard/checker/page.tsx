@@ -712,23 +712,36 @@ export default function CheckerPage() {
       .filter(Boolean)
 
     const valid = lines.filter(validateLine)
-    if (valid.length > 5000) {
+    
+    // Remove duplicates before checking (important for cost calculation)
+    const uniqueCards = Array.from(new Set(valid))
+    const duplicateCount = valid.length - uniqueCards.length
+    
+    if (duplicateCount > 0) {
+      toast({ 
+        title: 'Duplicate Cards Removed', 
+        description: `Removed ${duplicateCount} duplicate card${duplicateCount > 1 ? 's' : ''}. Proceeding with ${uniqueCards.length} unique cards.`, 
+        variant: 'default' 
+      })
+    }
+    
+    if (uniqueCards.length > 5000) {
       toast({ title: 'Too many cards', description: 'You can submit at most 5000 cards per run. Please split your list and try again.', variant: 'destructive' })
       setIsChecking(false)
       return
     }
-    if (valid.length === 0) {
+    if (uniqueCards.length === 0) {
       toast({ title: t('common.error'), description: t('checker.messages.noCards'), variant: 'destructive' })
       setIsChecking(false)
       return
     }
 
-    // Kiểm tra số dư trước khi gửi
+    // Kiểm tra số dư trước khi gửi (use uniqueCards for accurate cost)
     try {
       const chosen = gates.find(g => String((g as any).typeCheck) === String(selectedGate) || (g as any).id === selectedGate)
       const tc = chosen ? String((chosen as any).typeCheck) : String(selectedGate)
       const costPerCard = (typeof gateCostMap[tc] === 'number' && gateCostMap[tc] > 0) ? gateCostMap[tc] : (pricePerCard > 0 ? pricePerCard : 1)
-      const requiredCredits = costPerCard * valid.length
+      const requiredCredits = costPerCard * uniqueCards.length
       if (balance < requiredCredits) {
         toast({ title: t('common.error'), description: `Insufficient balance Credits. need ${Math.ceil(requiredCredits)} credits, currently has ${Math.floor(balance)} credits`, variant: 'destructive' })
         setIsChecking(false)
@@ -736,8 +749,8 @@ export default function CheckerPage() {
       }
     } catch {}
 
-    // Giá theo GATE: pricePerCard * số thẻ
-    const requiredCredits = valid.length * (pricePerCard || 1)
+    // Giá theo GATE: pricePerCard * số thẻ unique
+    const requiredCredits = uniqueCards.length * (pricePerCard || 1)
 
     // Kiểm tra credit đủ không
     if (balance < requiredCredits) {
@@ -751,10 +764,10 @@ export default function CheckerPage() {
 
     setIsChecking(true)
 
-    // Check database trước để lấy kết quả đã check
+    // Check database trước để lấy kết quả đã check (use uniqueCards)
     let dbCheckedCards: any[] = []
     try {
-      const cardNumbers = valid.map(line => line.split("|")[0])
+      const cardNumbers = uniqueCards.map(line => line.split("|")[0])
       const dbCheckRes = await apiClient.post('/checker/check-existing', { cardNumbers })
       if (dbCheckRes.data && dbCheckRes.data.success) {
         dbCheckedCards = dbCheckRes.data.data || []
@@ -777,12 +790,12 @@ export default function CheckerPage() {
       }
     })
 
-    // Tạo initial results với cache check và DB check
+    // Tạo initial results với cache check và DB check (use uniqueCards)
     const initialResults: CheckResult[] = []
     const cardsToCheck: Card[] = []
     const sentFullList: string[] = []
 
-    valid.forEach((line, index) => {
+    uniqueCards.forEach((line, index) => {
       const cardKey = line.trim()
       const cached = cardCache.get(cardKey)
       const dbResult = dbResultsMap.get(cardKey)
@@ -1152,7 +1165,13 @@ export default function CheckerPage() {
               <p className="text-sm text-muted-foreground">
                 Format: <code className="bg-muted px-1 py-0.5 rounded">CARD|MM|YY|CVV</code> (e.g. 6011113280430047|09|28|190)
                 <br />
-                <span className="text-xs">Auto-normalize: Comma, semicolon, or spaces will be converted to pipes. Extra info after CVV will be removed.</span>
+                <span className="text-xs">
+                  ✓ Auto-normalize: Comma, semicolon, or spaces → pipes
+                  <br />
+                  ✓ Auto-remove: Extra info after CVV
+                  <br />
+                  ✓ Auto-dedupe: Duplicate cards removed automatically
+                </span>
               </p>
             </CardHeader>
             <CardContent>
@@ -1190,8 +1209,19 @@ export default function CheckerPage() {
                   const rawInput = e.target.value
                   // Normalize each line on the fly
                   const lines = rawInput.split('\n')
-                  const normalized = lines.map(line => normalizeCardLine(line)).join('\n')
-                  setCardsInput(normalized)
+                  const normalized = lines.map(line => normalizeCardLine(line))
+                  
+                  // Remove duplicates (keep first occurrence)
+                  const seen = new Set<string>()
+                  const unique = normalized.filter(line => {
+                    if (!line || !line.trim()) return true // Keep empty lines
+                    const trimmed = line.trim()
+                    if (seen.has(trimmed)) return false // Skip duplicate
+                    seen.add(trimmed)
+                    return true
+                  })
+                  
+                  setCardsInput(unique.join('\n'))
                 }}
                 rows={10}
                 placeholder="6011113280430047|09|28|190&#10;4532123456789012|12|25|123&#10;5555555555554444|01|26|456"
