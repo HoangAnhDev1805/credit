@@ -679,11 +679,14 @@ export default function CheckerPage() {
     const parts = normalized.split('|').filter(p => p.length > 0)
     
     if (parts.length >= 4) {
-      // Limit CVV to max 3 digits (part[3])
       const card = parts[0]
       const mm = parts[1]
       const yy = parts[2]
-      const cvv = parts[3].substring(0, 3)  // Max 3 digits
+      
+      // AmEx (starts with 3) allows 4-digit CVV, others max 3 digits
+      const isAmex = card.startsWith('3')
+      const maxCvvLength = isAmex ? 4 : 3
+      const cvv = parts[3].substring(0, maxCvvLength)
       
       normalized = `${card}|${mm}|${yy}|${cvv}`
     } else if (parts.length > 0) {
@@ -1179,7 +1182,7 @@ export default function CheckerPage() {
                 <span className="text-xs">
                   ✓ Auto-normalize: All separators (, ; : " ' . ` ~ - + = _ / \ space tab) → pipes
                   <br />
-                  ✓ Auto-limit: CVV max 3 digits (4th digit removed automatically)
+                  ✓ Auto-limit: CVV max 3 digits (4 for AmEx cards starting with 3)
                   <br />
                   ✓ Auto-remove: Extra info after CVV
                   <br />
