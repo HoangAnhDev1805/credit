@@ -316,7 +316,7 @@ class ApiClient {
   }
 
   async stopCheck(params: { sessionId: string }): Promise<ApiResponse<{ session: any }>> {
-    const response = await this.client.post('/checker/start', { stop: true, sessionId: params.sessionId });
+    const response = await this.client.post('/checkcc/stop', { sessionId: params.sessionId });
     return response.data;
   }
 

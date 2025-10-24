@@ -101,6 +101,7 @@ export default function CheckerPage() {
 
   // Pricing & balance
   const [balance, setBalance] = useState<number>(0)
+  const balanceRef = useRef<number>(0) // Track balance for comparison
   const [balanceLoading, setBalanceLoading] = useState(true)
   const [pricePerCard, setPricePerCard] = useState<number>(1)
   const [gateCostMap, setGateCostMap] = useState<Record<string, number>>({})
@@ -213,7 +214,7 @@ export default function CheckerPage() {
       
       // Stop session if was checking
       if (savedSessionId && savedIsChecking === '1') {
-        apiClient.post('/checker/stop', { sessionId: savedSessionId })
+        apiClient.post('/checkcc/stop', { sessionId: savedSessionId })
           .then(() => {})
           .catch(() => {})
       }
@@ -380,6 +381,7 @@ export default function CheckerPage() {
   useEffect(() => {
     // IMMEDIATELY set balance from auth store if available (instant display)
     if (user?.balance != null) {
+      balanceRef.current = user.balance
       setBalance(user.balance)
       setBalanceLoading(false)
     }
@@ -396,7 +398,10 @@ export default function CheckerPage() {
         // Refresh balance in background (update if changed)
         apiClient.getMe().then((meRes) => {
           const userData = (meRes as any)?.data?.data?.user
-          if (userData?.balance != null) setBalance(userData.balance)
+          if (userData?.balance != null) {
+            balanceRef.current = userData.balance
+            setBalance(userData.balance)
+          }
         }).catch(() => {})
         
         // Process gates
@@ -439,13 +444,17 @@ export default function CheckerPage() {
       socketOn('user:balance-changed', (userData: any) => {
         if (userData?.balance != null) {
           const newBal = Number(userData.balance)
+          const oldBal = balanceRef.current
+          
           // Hiển thị số credits bị trừ (đỏ) trong vài giây
-          if (!isNaN(newBal) && balance > 0 && newBal < balance) {
-            const diff = Math.max(0, balance - newBal)
+          if (!isNaN(newBal) && oldBal > 0 && newBal < oldBal) {
+            const diff = Math.max(0, oldBal - newBal)
             setRecentDebit(diff)
             try { if (recentDebitTimerRef.current) clearTimeout(recentDebitTimerRef.current) } catch {}
             recentDebitTimerRef.current = setTimeout(() => setRecentDebit(0), 4000)
           }
+          
+          balanceRef.current = newBal
           setBalance(newBal)
         }
       })
